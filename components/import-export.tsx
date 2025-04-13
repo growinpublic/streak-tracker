@@ -33,15 +33,21 @@ export function ImportExport({ onImportComplete }: { onImportComplete: () => voi
       const streaks = await getAllGoals()
 
       // Transform data for CSV export
-      const exportData = streaks.map((streak) => ({
-        id: streak.id,
-        title: streak.title,
-        startDate: streak.startDate,
-        endDate: streak.endDate,
-        color: streak.color,
-        progress: streak.progress.join("|"), // Join progress dates with a pipe character
-        order: streak.order || 0, // Include order in export
-      }))
+      const exportData = streaks.map((streak) => {
+        // Convert notes object to JSON string
+        const notesJson = JSON.stringify(streak.notes || {})
+
+        return {
+          id: streak.id,
+          title: streak.title,
+          startDate: streak.startDate,
+          endDate: streak.endDate,
+          color: streak.color,
+          progress: streak.progress.join("|"), // Join progress dates with a pipe character
+          order: streak.order || 0, // Include order in export
+          notes: notesJson, // Add notes as JSON string
+        }
+      })
 
       // Convert to CSV
       const csv = Papa.unparse(exportData)
@@ -100,15 +106,28 @@ export function ImportExport({ onImportComplete }: { onImportComplete: () => voi
           }
 
           // Transform data for database
-          const streaks: GoalRecord[] = importData.map((row, index) => ({
-            id: row.id,
-            title: row.title,
-            startDate: row.startDate,
-            endDate: row.endDate,
-            color: row.color,
-            progress: row.progress ? row.progress.split("|").filter(Boolean) : [],
-            order: row.order !== undefined ? Number(row.order) : index, // Use provided order or index
-          }))
+          const streaks: GoalRecord[] = importData.map((row, index) => {
+            // Parse notes from JSON string or use empty object
+            let notes = {}
+            try {
+              if (row.notes) {
+                notes = JSON.parse(row.notes)
+              }
+            } catch (e) {
+              console.warn("Failed to parse notes for row:", row.id)
+            }
+
+            return {
+              id: row.id,
+              title: row.title,
+              startDate: row.startDate,
+              endDate: row.endDate,
+              color: row.color,
+              progress: row.progress ? row.progress.split("|").filter(Boolean) : [],
+              order: row.order !== undefined ? Number(row.order) : index, // Use provided order or index
+              notes: notes, // Add parsed notes
+            }
+          })
 
           // Clear existing data
           const existingStreaks = await getAllGoals()

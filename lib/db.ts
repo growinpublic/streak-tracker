@@ -9,6 +9,7 @@ export interface GoalRecord {
   progress: string[] // Array of ISO date strings
   color: string
   order: number // Add this field for sorting
+  notes: Record<string, string> // Add notes field - maps date strings to note content
 }
 
 // Add a database upgrade handler to set order for existing records
@@ -35,6 +36,21 @@ class StreakDatabase extends Dexie {
           .toCollection()
           .modify((goal, ref) => {
             goal.order = ref.index
+          })
+      })
+
+    // Upgrade to version 3 - add notes field
+    this.version(3)
+      .stores({
+        goals: "id, title, startDate, endDate, order", // Schema remains the same
+      })
+      .upgrade((tx) => {
+        // Add empty notes object to existing goals
+        return tx
+          .table("goals")
+          .toCollection()
+          .modify((goal) => {
+            goal.notes = {}
           })
       })
   }
@@ -72,4 +88,24 @@ export async function clearAllGoals(): Promise<void> {
 // Add a function to update goal order
 export async function updateGoalOrder(id: string, order: number): Promise<number> {
   return await db.goals.update(id, { order })
+}
+
+// Add a function to update notes for a specific date
+export async function updateGoalNote(id: string, date: string, note: string): Promise<number> {
+  // Get the current goal
+  const goal = await db.goals.get(id)
+  if (!goal) throw new Error("Goal not found")
+
+  // Update the notes object
+  const updatedNotes = { ...goal.notes, [date]: note }
+
+  // Save back to the database
+  return await db.goals.update(id, { notes: updatedNotes })
+}
+
+// Add a function to get notes for a goal
+export async function getGoalNotes(id: string): Promise<Record<string, string>> {
+  const goal = await db.goals.get(id)
+  if (!goal) return {}
+  return goal.notes || {}
 }

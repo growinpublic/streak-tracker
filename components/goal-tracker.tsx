@@ -1,10 +1,25 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import type React from "react"
+
+import { useState, useEffect, useRef } from "react"
 import { GoalForm } from "./goal-form"
 import { StreakBar } from "./streak-bar"
 import { Button } from "@/components/ui/button"
-import { PlusCircle, Trash2, ChevronUp, ChevronDown, XCircle, CheckCircle } from "lucide-react"
+import {
+  PlusCircle,
+  Trash2,
+  ChevronUp,
+  ChevronDown,
+  XCircle,
+  CheckCircle,
+  ChevronRight,
+  Edit,
+  Save,
+  X,
+  ChevronsUp,
+  ChevronsDown,
+} from "lucide-react"
 import {
   type GoalRecord,
   getAllGoals,
@@ -13,11 +28,15 @@ import {
   updateGoalProgress,
   updateGoalOrder,
   updateGoal as dbUpdateGoal,
+  updateGoalNote,
 } from "@/lib/db"
 import { LoadingSpinner } from "./loading-spinner"
 import { ImportExport } from "./import-export"
 import { differenceInDays, addDays, format } from "date-fns"
 import { MobileDialog } from "./mobile-dialog"
+import { NoteDialog } from "./note-dialog"
+import { Input } from "@/components/ui/input"
+import { Separator } from "@/components/ui/separator"
 
 export interface Goal {
   id: string
@@ -27,6 +46,7 @@ export interface Goal {
   progress: string[] // Array of dates marked as completed (ISO strings)
   color: string
   order: number
+  notes: Record<string, string> // Map of date strings to notes
 }
 
 function recordToGoal(record: GoalRecord): Goal {
@@ -35,6 +55,7 @@ function recordToGoal(record: GoalRecord): Goal {
     startDate: new Date(record.startDate),
     endDate: new Date(record.endDate),
     order: record.order || 0, // Default to 0 if order is not set
+    notes: record.notes || {}, // Default to empty object if notes is not set
   }
 }
 
@@ -44,6 +65,7 @@ function goalToRecord(goal: Goal): GoalRecord {
     startDate: goal.startDate.toISOString(),
     endDate: goal.endDate.toISOString(),
     order: goal.order || 0, // Default to 0 if order is not set
+    notes: goal.notes || {}, // Default to empty object if notes is not set
   }
 }
 
@@ -52,9 +74,21 @@ export function GoalTracker() {
   const [goals, setGoals] = useState<Goal[]>([])
   const [loading, setLoading] = useState(true)
 
+  // State for collapsible goals
+  const [collapsedGoals, setCollapsedGoals] = useState<Record<string, boolean>>({})
+
+  // State for editable titles
+  const [editingTitle, setEditingTitle] = useState<string | null>(null)
+  const [editTitleValue, setEditTitleValue] = useState("")
+  const titleInputRef = useRef<HTMLInputElement>(null)
+
   // State for the extend end date confirmation dialog
   const [extendDialogOpen, setExtendDialogOpen] = useState(false)
   const [extendInfo, setExtendInfo] = useState<{ goalId: string; newEndDate: string } | null>(null)
+
+  // State for the note dialog
+  const [noteDialogOpen, setNoteDialogOpen] = useState(false)
+  const [noteInfo, setNoteInfo] = useState<{ goalId: string; date: string; initialNote: string } | null>(null)
 
   // Load goals from database
   const loadGoals = async () => {
@@ -79,7 +113,14 @@ export function GoalTracker() {
     loadGoals()
   }, [])
 
-  const addGoal = async (goal: Omit<Goal, "id" | "progress" | "order">) => {
+  // Focus the title input when editing starts
+  useEffect(() => {
+    if (editingTitle && titleInputRef.current) {
+      titleInputRef.current.focus()
+    }
+  }, [editingTitle])
+
+  const addGoal = async (goal: Omit<Goal, "id" | "progress" | "order" | "notes">) => {
     try {
       // Get the highest order value
       const highestOrder = goals.length > 0 ? Math.max(...goals.map((g) => g.order)) : -1
@@ -89,6 +130,7 @@ export function GoalTracker() {
         id: crypto.randomUUID(),
         progress: [],
         order: highestOrder + 1, // Place new goal at the end
+        notes: {}, // Initialize with empty notes
       }
 
       await dbAddGoal(goalToRecord(newGoal))
@@ -106,17 +148,50 @@ export function GoalTracker() {
       const goal = goals.find((g) => g.id === goalId)
       if (!goal) return
 
-      // Toggle the date in progress
-      const newProgress = goal.progress.includes(date)
-        ? goal.progress.filter((d) => d !== date)
-        : [...goal.progress, date]
+      // Check if the date is already in progress
+      const isAlreadyCompleted = goal.progress.includes(date)
 
-      await updateGoalProgress(goalId, newProgress)
+      if (isAlreadyCompleted) {
+        // If already completed, just remove it
+        const newProgress = goal.progress.filter((d) => d !== date)
+        await updateGoalProgress(goalId, newProgress)
 
-      // Update local state
-      setGoals((prev) => prev.map((g) => (g.id === goalId ? { ...g, progress: newProgress } : g)))
+        // Update local state
+        setGoals((prev) => prev.map((g) => (g.id === goalId ? { ...g, progress: newProgress } : g)))
+      } else {
+        // If not completed, add it and show the note dialog
+        const newProgress = [...goal.progress, date]
+        await updateGoalProgress(goalId, newProgress)
+
+        // Update local state
+        setGoals((prev) => prev.map((g) => (g.id === goalId ? { ...g, progress: newProgress } : g)))
+
+        // Open note dialog
+        setNoteInfo({
+          goalId,
+          date,
+          initialNote: goal.notes[date] || "",
+        })
+        setNoteDialogOpen(true)
+      }
     } catch (error) {
       console.error("Failed to update progress:", error)
+    }
+  }
+
+  const saveNote = async (note: string) => {
+    if (!noteInfo) return
+
+    try {
+      const { goalId, date } = noteInfo
+
+      // Save note to database
+      await updateGoalNote(goalId, date, note)
+
+      // Update local state
+      setGoals((prev) => prev.map((g) => (g.id === goalId ? { ...g, notes: { ...g.notes, [date]: note } } : g)))
+    } catch (error) {
+      console.error("Failed to save note:", error)
     }
   }
 
@@ -126,6 +201,13 @@ export function GoalTracker() {
 
       // Update local state
       setGoals((prev) => prev.filter((g) => g.id !== goalId))
+
+      // Remove from collapsed state if present
+      if (collapsedGoals[goalId]) {
+        const newCollapsedGoals = { ...collapsedGoals }
+        delete newCollapsedGoals[goalId]
+        setCollapsedGoals(newCollapsedGoals)
+      }
     } catch (error) {
       console.error("Failed to delete goal:", error)
     }
@@ -252,15 +334,114 @@ export function GoalTracker() {
     }
   }
 
+  // Function to view notes for a specific date
+  const viewNotes = (goalId: string, date: string) => {
+    const goal = goals.find((g) => g.id === goalId)
+    if (!goal) return
+
+    setNoteInfo({
+      goalId,
+      date,
+      initialNote: goal.notes[date] || "",
+    })
+    setNoteDialogOpen(true)
+  }
+
+  // Function to toggle collapse state for a goal
+  const toggleCollapse = (goalId: string) => {
+    setCollapsedGoals((prev) => ({
+      ...prev,
+      [goalId]: !prev[goalId],
+    }))
+  }
+
+  // Function to collapse all goals
+  const collapseAll = () => {
+    const allCollapsed: Record<string, boolean> = {}
+    goals.forEach((goal) => {
+      allCollapsed[goal.id] = true
+    })
+    setCollapsedGoals(allCollapsed)
+  }
+
+  // Function to expand all goals
+  const expandAll = () => {
+    setCollapsedGoals({})
+  }
+
+  // Function to start editing a goal title
+  const startEditingTitle = (goalId: string, currentTitle: string) => {
+    setEditingTitle(goalId)
+    setEditTitleValue(currentTitle)
+  }
+
+  // Function to save edited title
+  const saveEditedTitle = async (goalId: string) => {
+    try {
+      if (!editTitleValue.trim()) {
+        // Don't save empty titles
+        cancelEditingTitle()
+        return
+      }
+
+      const goal = goals.find((g) => g.id === goalId)
+      if (!goal) return
+
+      const updatedGoal = {
+        ...goal,
+        title: editTitleValue.trim(),
+      }
+
+      // Update in database
+      await dbUpdateGoal(goalToRecord(updatedGoal))
+
+      // Update local state
+      setGoals((prev) => prev.map((g) => (g.id === goalId ? updatedGoal : g)))
+
+      // Exit edit mode
+      setEditingTitle(null)
+    } catch (error) {
+      console.error("Failed to update goal title:", error)
+    }
+  }
+
+  // Function to cancel title editing
+  const cancelEditingTitle = () => {
+    setEditingTitle(null)
+    setEditTitleValue("")
+  }
+
+  // Handle key press in title input
+  const handleTitleKeyDown = (e: React.KeyboardEvent, goalId: string) => {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      saveEditedTitle(goalId)
+    } else if (e.key === "Escape") {
+      e.preventDefault()
+      cancelEditingTitle()
+    }
+  }
+
   if (loading) {
     return <LoadingSpinner />
   }
 
   return (
     <div className="space-y-6 w-full">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-lg font-medium">Your Goals</h2>
-        <ImportExport onImportComplete={loadGoals} />
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={collapseAll} title="Collapse all goals">
+            <ChevronsUp className="h-4 w-4 mr-2" />
+            Collapse All
+          </Button>
+          <Button variant="outline" size="sm" onClick={expandAll} title="Expand all goals">
+            <ChevronsDown className="h-4 w-4 mr-2" />
+            Expand All
+          </Button>
+          <Separator orientation="vertical" className="h-8 hidden sm:block" />
+          <ImportExport onImportComplete={loadGoals} />
+        </div>
       </div>
 
       {goals.length > 0 ? (
@@ -268,15 +449,76 @@ export function GoalTracker() {
           {goals.map((goal) => (
             <div key={goal.id} className="space-y-3 p-4 border rounded-lg border-border overflow-hidden">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: goal.color }} />
-                    <h3 className="text-xl font-medium">{goal.title}</h3>
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    {new Date(goal.startDate).toLocaleDateString()} to {new Date(goal.endDate).toLocaleDateString()}
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    onClick={() => toggleCollapse(goal.id)}
+                    aria-label={collapsedGoals[goal.id] ? "Expand goal" : "Collapse goal"}
+                  >
+                    <ChevronRight
+                      className={`h-4 w-4 transition-transform ${collapsedGoals[goal.id] ? "" : "rotate-90"}`}
+                    />
+                  </Button>
+
+                  <div className="space-y-1 flex-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: goal.color }} />
+
+                      {editingTitle === goal.id ? (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            ref={titleInputRef}
+                            value={editTitleValue}
+                            onChange={(e) => setEditTitleValue(e.target.value)}
+                            onKeyDown={(e) => handleTitleKeyDown(e, goal.id)}
+                            className="h-8 py-1 text-xl font-medium"
+                            autoFocus
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => saveEditedTitle(goal.id)}
+                            aria-label="Save title"
+                          >
+                            <Save className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={cancelEditingTitle}
+                            aria-label="Cancel editing"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 goal-title-container">
+                          <h3 className="text-xl font-medium">{goal.title}</h3>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 edit-title-button"
+                            onClick={() => startEditingTitle(goal.id, goal.title)}
+                            aria-label="Edit title"
+                          >
+                            <Edit className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    {!collapsedGoals[goal.id] && (
+                      <div className="text-sm text-muted-foreground">
+                        {new Date(goal.startDate).toLocaleDateString()} to {new Date(goal.endDate).toLocaleDateString()}
+                      </div>
+                    )}
                   </div>
                 </div>
+
                 <div className="flex items-center gap-2 self-start md:self-center">
                   <div className="flex flex-col">
                     <Button
@@ -300,35 +542,43 @@ export function GoalTracker() {
                       <ChevronDown className="h-4 w-4" />
                     </Button>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => clearProgress(goal.id)}
-                      title="Clear all progress"
-                    >
-                      <XCircle className="h-4 w-4 mr-2" />
-                      Clear
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => fillProgress(goal.id)} title="Fill all dates">
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Fill
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => deleteGoal(goal.id)} title="Delete this goal">
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
-                    </Button>
-                  </div>
+
+                  {!collapsedGoals[goal.id] && (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => clearProgress(goal.id)}
+                        title="Clear all progress"
+                      >
+                        <XCircle className="h-4 w-4 mr-2" />
+                        Clear
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => fillProgress(goal.id)} title="Fill all dates">
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Fill
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => deleteGoal(goal.id)} title="Delete this goal">
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
-              <StreakBar
-                startDate={goal.startDate}
-                endDate={goal.endDate}
-                progress={goal.progress}
-                color={goal.color}
-                onDateClick={(date) => updateProgress(goal.id, date)}
-                onExtendEndDate={(date) => handleExtendEndDate(goal.id, date)}
-              />
+
+              {!collapsedGoals[goal.id] && (
+                <StreakBar
+                  startDate={goal.startDate}
+                  endDate={goal.endDate}
+                  progress={goal.progress}
+                  color={goal.color}
+                  notes={goal.notes}
+                  onDateClick={(date) => updateProgress(goal.id, date)}
+                  onExtendEndDate={(date) => handleExtendEndDate(goal.id, date)}
+                  onViewNotes={(date) => viewNotes(goal.id, date)}
+                />
+              )}
             </div>
           ))}
         </div>
@@ -358,6 +608,16 @@ export function GoalTracker() {
         onConfirm={confirmExtendEndDate}
         confirmText="Extend End Date"
         cancelText="Cancel"
+      />
+
+      {/* Note Dialog */}
+      <NoteDialog
+        isOpen={noteDialogOpen}
+        onClose={() => setNoteDialogOpen(false)}
+        date={noteInfo?.date || ""}
+        initialNote={noteInfo?.initialNote || ""}
+        onSave={saveNote}
+        title="Add Note"
       />
     </div>
   )

@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState, useRef, useCallback } from "react"
 import {
   differenceInDays,
   format,
@@ -16,7 +16,7 @@ import {
 } from "date-fns"
 import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Info, ChevronLeft, ChevronRight, Bug } from "lucide-react"
+import { Info, ChevronLeft, ChevronRight, Bug, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 interface StreakBarProps {
@@ -24,14 +24,28 @@ interface StreakBarProps {
   endDate: Date
   progress: string[] // ISO date strings
   color: string // Added color property
+  notes: Record<string, string> // Map of date strings to notes
   onDateClick: (date: string) => void
   onExtendEndDate?: (date: string) => void // New prop for extending end date
+  onViewNotes?: (date: string) => void // New prop for viewing notes
 }
 
 // Days of week for labels
 const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
-export function StreakBar({ startDate, endDate, progress, color, onDateClick, onExtendEndDate }: StreakBarProps) {
+// Set to true to show debug buttons
+const SHOW_DEBUG_BUTTONS = false
+
+export function StreakBar({
+  startDate,
+  endDate,
+  progress,
+  color,
+  notes = {},
+  onDateClick,
+  onExtendEndDate,
+  onViewNotes,
+}: StreakBarProps) {
   // Get the current year for initial state
   const today = new Date()
   today.setHours(0, 0, 0, 0) // Normalize today to start of day
@@ -42,18 +56,23 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
   const [cells, setCells] = useState<Date[][]>([])
   const [monthLabels, setMonthLabels] = useState<{ month: string; weekIndex: number }[]>([])
   const [labelPositions, setLabelPositions] = useState<number[]>([])
+  const [shouldScrollToToday, setShouldScrollToToday] = useState(true)
   const gridRef = useRef<HTMLDivElement>(null)
+  const gridContainerRef = useRef<HTMLDivElement>(null)
   const weekRefs = useRef<(HTMLDivElement | null)[]>([])
   const labelRefs = useRef<(HTMLDivElement | null)[]>([])
+  const hasScrolledRef = useRef(false)
 
   // Navigate to previous year
   const goToPreviousYear = () => {
     setDisplayYear((prev) => prev - 1)
+    hasScrolledRef.current = false
   }
 
   // Navigate to next year
   const goToNextYear = () => {
     setDisplayYear((prev) => prev + 1)
+    hasScrolledRef.current = false
   }
 
   // Generate calendar grid for the selected year
@@ -124,7 +143,15 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
 
     // Reset labelRefs array to match the number of labels
     labelRefs.current = Array(labels.length).fill(null)
-  }, [displayYear]) // Re-run when displayYear changes
+
+    // Reset scroll flag when year changes
+    hasScrolledRef.current = false
+
+    // Trigger scroll to today if we're on the current year
+    if (displayYear === currentYear) {
+      setShouldScrollToToday(true)
+    }
+  }, [displayYear, currentYear]) // Re-run when displayYear changes
 
   // Calculate label positions after DOM is updated
   useEffect(() => {
@@ -147,6 +174,74 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
 
     return () => cancelAnimationFrame(rafId)
   }, [monthLabels, cells]) // Re-run when labels or cells change
+
+  // Find today's position if we're viewing the current year
+  const findTodayPosition = useCallback(() => {
+    if (displayYear !== currentYear || !cells.length) return null
+
+    for (let dayIndex = 0; dayIndex < cells.length; dayIndex++) {
+      for (let weekIndex = 0; weekIndex < cells[dayIndex].length; weekIndex++) {
+        if (isSameDay(cells[dayIndex][weekIndex], today)) {
+          return { dayIndex, weekIndex }
+        }
+      }
+    }
+    return null
+  }, [cells, displayYear, currentYear, today])
+
+  // Scroll to today implementation
+  const performScrollToToday = useCallback(() => {
+    if (!gridContainerRef.current || hasScrolledRef.current) return
+
+    const todayPosition = findTodayPosition()
+    if (!todayPosition) return
+
+    const weekRef = weekRefs.current[todayPosition.weekIndex]
+    if (!weekRef) return
+
+    // Use requestAnimationFrame to ensure DOM measurements are accurate
+    requestAnimationFrame(() => {
+      if (!gridContainerRef.current || !weekRef) return
+
+      const weekRect = weekRef.getBoundingClientRect()
+      const containerRect = gridContainerRef.current.getBoundingClientRect()
+
+      // Center the week in the viewport
+      const scrollPosition = weekRect.left - containerRect.left - containerRect.width / 2 + weekRect.width / 2
+
+      // Apply the scroll
+      gridContainerRef.current.scrollLeft = Math.max(0, scrollPosition + gridContainerRef.current.scrollLeft)
+
+      // Mark as scrolled
+      hasScrolledRef.current = true
+      setShouldScrollToToday(false)
+    })
+  }, [findTodayPosition])
+
+  // Effect to scroll to today when needed
+  useEffect(() => {
+    if (!shouldScrollToToday || !cells.length || displayYear !== currentYear) return
+
+    // Delay to ensure DOM is fully rendered
+    const timeoutId = setTimeout(() => {
+      performScrollToToday()
+    }, 300)
+
+    return () => clearTimeout(timeoutId)
+  }, [shouldScrollToToday, cells, displayYear, currentYear, performScrollToToday])
+
+  // Manual scroll to today function
+  const scrollToToday = () => {
+    if (displayYear !== currentYear) {
+      // If not on current year, switch to it first
+      setDisplayYear(currentYear)
+      // This will trigger the useEffect via shouldScrollToToday
+    } else {
+      // Already on current year, just scroll
+      hasScrolledRef.current = false
+      setShouldScrollToToday(true)
+    }
+  }
 
   // Debug function to log positions
   const logPositions = () => {
@@ -230,6 +325,12 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
     return "out-of-range"
   }
 
+  // Check if a date has notes
+  const hasNotes = (date: Date) => {
+    const dateStr = format(date, "yyyy-MM-dd")
+    return notes[dateStr] && notes[dateStr].trim() !== ""
+  }
+
   const handleDateClick = (date: Date) => {
     // Only allow clicking on dates from the displayed year
     if (date.getFullYear() !== displayYear) return
@@ -263,6 +364,14 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
     }
   }
 
+  // Handle view notes click
+  const handleViewNotes = (date: Date) => {
+    if (!onViewNotes) return
+
+    const dateStr = format(date, "yyyy-MM-dd")
+    onViewNotes(dateStr)
+  }
+
   const calculateCompletion = () => {
     if (progress.length === 0) return 0
 
@@ -285,20 +394,6 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
 
     // Calculate percentage
     return Math.min(100, Math.round((validProgressDates.length / totalDays) * 100))
-  }
-
-  // Find today's position if we're viewing the current year
-  const findTodayPosition = () => {
-    if (displayYear !== currentYear) return null
-
-    for (let dayIndex = 0; dayIndex < cells.length; dayIndex++) {
-      for (let weekIndex = 0; weekIndex < cells[dayIndex].length; weekIndex++) {
-        if (isSameDay(cells[dayIndex][weekIndex], today)) {
-          return { dayIndex, weekIndex }
-        }
-      }
-    }
-    return null
   }
 
   const todayPosition = findTodayPosition()
@@ -398,28 +493,36 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
               <ChevronRight className="h-4 w-4" />
             </Button>
 
-            {/* Debug button */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={logPositions}
-              className="h-8 w-8 ml-2"
-              aria-label="Debug Positions"
-              title="Log positions to console"
-            >
-              <Bug className="h-4 w-4" />
+            {/* Today button */}
+            <Button variant="outline" size="sm" onClick={scrollToToday} className="ml-2 text-xs">
+              Today
             </Button>
 
-            {/* Force recalculate button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={forceRecalculate}
-              className="ml-2"
-              title="Force recalculate positions"
-            >
-              Recalculate
-            </Button>
+            {/* Debug buttons - only shown when SHOW_DEBUG_BUTTONS is true */}
+            {SHOW_DEBUG_BUTTONS && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={logPositions}
+                  className="h-8 w-8 ml-2"
+                  aria-label="Debug Positions"
+                  title="Log positions to console"
+                >
+                  <Bug className="h-4 w-4" />
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={forceRecalculate}
+                  className="ml-2"
+                  title="Force recalculate positions"
+                >
+                  Recalculate
+                </Button>
+              </>
+            )}
           </div>
 
           <Tooltip>
@@ -451,6 +554,10 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
                   <div className="h-3 w-3 rounded-sm bg-muted/20"></div>
                   <span className="text-xs">Out of Range (Click to extend end date)</span>
                 </div>
+                <div className="flex items-center gap-2">
+                  <FileText className="h-3 w-3" />
+                  <span className="text-xs">Has Notes (Click to view)</span>
+                </div>
               </div>
             </TooltipContent>
           </Tooltip>
@@ -467,96 +574,116 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
           </div>
 
           {/* Calendar grid with month labels */}
-          <div className="w-full overflow-x-auto pb-2" ref={gridRef}>
-            {/* Month labels - positioned above the grid */}
-            <div className="relative h-5 mb-1">
-              {monthLabels.map((label, i) => (
-                <div
-                  key={i}
-                  className="absolute text-xs text-muted-foreground whitespace-nowrap"
-                  style={{
-                    left: `${labelPositions[i]}px`, // Use the calculated position
-                  }}
-                  ref={(el) => (labelRefs.current[i] = el)}
-                >
-                  {label.month}
-                </div>
-              ))}
-            </div>
-
-            {/* Calendar grid */}
-            <div className="flex gap-1 min-w-[800px]">
-              {cells.length > 0 &&
-                cells[0].map((_, weekIndex) => (
+          <div className="w-full overflow-x-auto pb-2" ref={gridContainerRef}>
+            <div ref={gridRef}>
+              {/* Month labels - positioned above the grid */}
+              <div className="relative h-5 mb-1">
+                {monthLabels.map((label, i) => (
                   <div
-                    key={weekIndex}
-                    className="flex flex-col gap-1"
+                    key={i}
+                    className="absolute text-xs text-muted-foreground whitespace-nowrap"
                     style={{
-                      width: "16px",
-                      minWidth: "16px",
+                      left: `${labelPositions[i]}px`, // Use the calculated position
                     }}
-                    ref={(el) => (weekRefs.current[weekIndex] = el)}
+                    ref={(el) => (labelRefs.current[i] = el)}
                   >
-                    {cells.map((dayRow, dayIndex) => {
-                      if (weekIndex >= dayRow.length) return null
-
-                      const date = dayRow[weekIndex]
-                      const status = getDateStatus(date)
-                      const isToday =
-                        todayPosition && todayPosition.dayIndex === dayIndex && todayPosition.weekIndex === weekIndex
-
-                      // Custom styles based on status
-                      const cellStyle = {
-                        ...(status === "completed" && {
-                          backgroundColor: color,
-                          "--hover-color": getHoverColor(color),
-                        }),
-                      }
-
-                      return (
-                        <Tooltip key={`${dayIndex}-${weekIndex}`}>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              className={cn(
-                                "h-4 w-full rounded-sm transition-colors",
-                                status === "completed" && "hover:bg-[var(--hover-color)]",
-                                status === "missed" && "bg-muted hover:bg-muted/80",
-                                status === "today" &&
-                                  "bg-blue-200 dark:bg-blue-900 hover:bg-blue-300 dark:hover:bg-blue-800",
-                                status === "future" && "bg-muted/50 hover:bg-muted/40",
-                                status === "out-of-range" && "bg-muted/20 hover:bg-muted/30",
-                                status === "previous-year" && "opacity-0",
-                                status === "previous-year" && "cursor-not-allowed",
-                                isToday && "ring-2 ring-blue-500",
-                              )}
-                              style={cellStyle as React.CSSProperties}
-                              onClick={() => handleDateClick(date)}
-                              disabled={status === "previous-year"}
-                              aria-label={format(date, "EEEE, MMMM d, yyyy")}
-                            />
-                          </TooltipTrigger>
-                          <TooltipContent side="top" align="center">
-                            <div className="text-xs">
-                              <p className="font-medium">{format(date, "EEEE, MMMM d, yyyy")}</p>
-                              <p>
-                                {status === "completed" && "Completed"}
-                                {status === "missed" && "Missed"}
-                                {status === "today" && "Today"}
-                                {status === "future" && "Future"}
-                                {status === "out-of-range" &&
-                                  (date.getTime() > new Date(endDate).getTime()
-                                    ? "Click to extend end date"
-                                    : "Out of Goal Range")}
-                                {status === "previous-year" && "Previous Year"}
-                              </p>
-                            </div>
-                          </TooltipContent>
-                        </Tooltip>
-                      )
-                    })}
+                    {label.month}
                   </div>
                 ))}
+              </div>
+
+              {/* Calendar grid */}
+              <div className="flex gap-1 min-w-[800px]">
+                {cells.length > 0 &&
+                  cells[0].map((_, weekIndex) => (
+                    <div
+                      key={weekIndex}
+                      className="flex flex-col gap-1"
+                      style={{
+                        width: "16px",
+                        minWidth: "16px",
+                      }}
+                      ref={(el) => (weekRefs.current[weekIndex] = el)}
+                    >
+                      {cells.map((dayRow, dayIndex) => {
+                        if (weekIndex >= dayRow.length) return null
+
+                        const date = dayRow[weekIndex]
+                        const status = getDateStatus(date)
+                        const isToday =
+                          todayPosition && todayPosition.dayIndex === dayIndex && todayPosition.weekIndex === weekIndex
+                        const dateHasNotes = hasNotes(date)
+
+                        // Custom styles based on status
+                        const cellStyle = {
+                          ...(status === "completed" && {
+                            backgroundColor: color,
+                            "--hover-color": getHoverColor(color),
+                          }),
+                        }
+
+                        return (
+                          <Tooltip key={`${dayIndex}-${weekIndex}`}>
+                            <TooltipTrigger asChild>
+                              <div className="relative h-4">
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "h-4 w-full rounded-sm transition-colors absolute inset-0",
+                                    status === "completed" && "hover:bg-[var(--hover-color)]",
+                                    status === "missed" && "bg-muted hover:bg-muted/80",
+                                    status === "today" &&
+                                      "bg-blue-200 dark:bg-blue-900 hover:bg-blue-300 dark:hover:bg-blue-800",
+                                    status === "future" && "bg-muted/50 hover:bg-muted/40",
+                                    status === "out-of-range" && "bg-muted/20 hover:bg-muted/30",
+                                    status === "previous-year" && "opacity-0",
+                                    status === "previous-year" && "cursor-not-allowed",
+                                    isToday && "ring-2 ring-blue-500",
+                                  )}
+                                  style={cellStyle as React.CSSProperties}
+                                  onClick={() => handleDateClick(date)}
+                                  disabled={status === "previous-year"}
+                                  aria-label={format(date, "EEEE, MMMM d, yyyy")}
+                                />
+                                {/* Note indicator */}
+                                {dateHasNotes && (
+                                  <button
+                                    type="button"
+                                    className="absolute -top-1 -right-1 text-primary hover:text-primary/80 transition-colors"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleViewNotes(date)
+                                    }}
+                                    aria-label={`View notes for ${format(date, "EEEE, MMMM d, yyyy")}`}
+                                  >
+                                    <FileText className="h-2 w-2" />
+                                  </button>
+                                )}
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" align="center">
+                              <div className="text-xs">
+                                <p className="font-medium">{format(date, "EEEE, MMMM d, yyyy")}</p>
+                                <p>
+                                  {status === "completed" && "Completed"}
+                                  {status === "missed" && "Missed"}
+                                  {status === "today" && "Today"}
+                                  {status === "future" && "Future"}
+                                  {status === "out-of-range" &&
+                                    (date.getTime() > new Date(endDate).getTime()
+                                      ? "Click to extend end date"
+                                      : "Out of Goal Range")}
+                                  {status === "previous-year" && "Previous Year"}
+                                </p>
+                                {dateHasNotes && <p className="mt-1 italic">Has notes - click note icon to view</p>}
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        )
+                      })}
+                    </div>
+                  ))}
+              </div>
             </div>
           </div>
         </div>

@@ -92,3 +92,14 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+/* Custom styles for title editing */
+.goal-title-container:hover .edit-title-button,
+.goal-title-container:focus-within .edit-title-button {
+  opacity: 1;
+}
+
+.edit-title-button {
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+}
