@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import {
   differenceInDays,
   format,
@@ -16,7 +16,7 @@ import {
 } from "date-fns"
 import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Info, ChevronLeft, ChevronRight } from "lucide-react"
+import { Info, ChevronLeft, ChevronRight, Bug } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 interface StreakBarProps {
@@ -40,7 +40,11 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
   // State for the displayed year
   const [displayYear, setDisplayYear] = useState(currentYear)
   const [cells, setCells] = useState<Date[][]>([])
-  const [monthLabels, setMonthLabels] = useState<{ month: string; position: number }[]>([])
+  const [monthLabels, setMonthLabels] = useState<{ month: string; weekIndex: number }[]>([])
+  const [labelPositions, setLabelPositions] = useState<number[]>([])
+  const gridRef = useRef<HTMLDivElement>(null)
+  const weekRefs = useRef<(HTMLDivElement | null)[]>([])
+  const labelRefs = useRef<(HTMLDivElement | null)[]>([])
 
   // Navigate to previous year
   const goToPreviousYear = () => {
@@ -59,15 +63,12 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
 
     // Start with January 1st of the displayed year
     const yearStart = startOfYear(new Date(displayYear, 0, 1))
-    console.log(`Year start (${displayYear}):`, yearStart.toISOString())
 
     // End with December 31st of the displayed year
     const yearEnd = endOfYear(new Date(displayYear, 0, 1))
-    console.log(`Year end (${displayYear}):`, yearEnd.toISOString())
 
     // Find the first Sunday before or on January 1st
     const firstSunday = getDay(yearStart) === 0 ? yearStart : subDays(yearStart, getDay(yearStart))
-    console.log("First Sunday:", firstSunday.toISOString())
 
     // Initialize the grid with 7 empty rows
     for (let i = 0; i < 7; i++) {
@@ -77,7 +78,6 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
     // Calculate how many weeks we need (could be 52 or 53)
     const lastSunday = getDay(yearEnd) === 0 ? yearEnd : subDays(yearEnd, getDay(yearEnd))
     const weeksNeeded = Math.ceil(differenceInDays(lastSunday, firstSunday) / 7) + 1
-    console.log("Weeks needed:", weeksNeeded)
 
     // Fill the grid with dates
     for (let week = 0; week < weeksNeeded; week++) {
@@ -89,27 +89,105 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
 
     setCells(grid)
 
-    // Generate month labels
-    const labels: { month: string; position: number }[] = []
-    let currentMonth = ""
+    // Reset weekRefs array to match the number of weeks
+    weekRefs.current = Array(weeksNeeded).fill(null)
 
-    // Use the first row (Sundays) to determine month changes
-    for (let week = 0; week < weeksNeeded; week++) {
-      const date = addDays(firstSunday, week * 7)
+    // Find the first week of each month
+    const labels: { month: string; weekIndex: number }[] = []
+    const monthsFound = new Set<number>()
 
-      // Only show labels for months in the current year
+    // We'll use the first row (Sundays) to find month transitions
+    const sundays = grid[0]
+
+    for (let weekIndex = 0; weekIndex < sundays.length; weekIndex++) {
+      const date = sundays[weekIndex]
+
+      // Only consider dates in the current year
       if (date.getFullYear() === displayYear) {
-        const month = format(date, "MMM")
-        if (month !== currentMonth) {
-          // Only add if it's a new month
-          labels.push({ month, position: week })
-          currentMonth = month
+        const month = date.getMonth()
+
+        // If we haven't found this month yet
+        if (!monthsFound.has(month)) {
+          labels.push({
+            month: format(date, "MMM"),
+            weekIndex: weekIndex,
+          })
+
+          monthsFound.add(month)
         }
       }
     }
 
     setMonthLabels(labels)
+    // Reset positions when labels change
+    setLabelPositions(Array(labels.length).fill(0))
+
+    // Reset labelRefs array to match the number of labels
+    labelRefs.current = Array(labels.length).fill(null)
   }, [displayYear]) // Re-run when displayYear changes
+
+  // Calculate label positions after DOM is updated
+  useEffect(() => {
+    // Skip if no labels or grid
+    if (!monthLabels.length || !gridRef.current) return
+
+    // Use requestAnimationFrame to ensure DOM is updated
+    const rafId = requestAnimationFrame(() => {
+      const newPositions = monthLabels.map((label) => {
+        const weekRef = weekRefs.current[label.weekIndex]
+        if (!weekRef || !gridRef.current) return 0
+
+        const rect = weekRef.getBoundingClientRect()
+        const gridRect = gridRef.current.getBoundingClientRect()
+        return rect.left - gridRect.left
+      })
+
+      setLabelPositions(newPositions)
+    })
+
+    return () => cancelAnimationFrame(rafId)
+  }, [monthLabels, cells]) // Re-run when labels or cells change
+
+  // Debug function to log positions
+  const logPositions = () => {
+    console.log("--- DEBUG: POSITIONS ---")
+
+    // Log week positions
+    console.log("WEEK POSITIONS:")
+    weekRefs.current.forEach((weekRef, index) => {
+      if (weekRef && gridRef.current) {
+        const rect = weekRef.getBoundingClientRect()
+        const gridRect = gridRef.current.getBoundingClientRect()
+        const position = rect.left - gridRect.left
+        const date = cells[0][index]
+        console.log(`Week ${index} (${format(date, "yyyy-MM-dd")}): ${position}px`)
+      }
+    })
+
+    // Log label positions
+    console.log("LABEL POSITIONS:")
+    labelRefs.current.forEach((labelRef, index) => {
+      if (labelRef && gridRef.current && index < monthLabels.length) {
+        const rect = labelRef.getBoundingClientRect()
+        const gridRect = gridRef.current.getBoundingClientRect()
+        const position = rect.left - gridRect.left
+
+        const weekIndex = monthLabels[index].weekIndex
+        const weekRef = weekRefs.current[weekIndex]
+        let weekPosition = 0
+        if (weekRef) {
+          const weekRect = weekRef.getBoundingClientRect()
+          weekPosition = weekRect.left - gridRect.left
+        }
+
+        console.log(
+          `Label ${index} (${monthLabels[index].month}): ${position}px (should be at week ${weekIndex}: ${weekPosition}px)`,
+        )
+      }
+    })
+
+    console.log("--- END DEBUG ---")
+  }
 
   const getDateStatus = (date: Date) => {
     // Normalize dates for comparison
@@ -273,8 +351,27 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
   // Calculate total days in the goal
   const totalDays = differenceInDays(new Date(endDate), new Date(startDate)) + 1
 
+  // Force recalculation of positions
+  const forceRecalculate = () => {
+    if (!monthLabels.length || !gridRef.current) return
+
+    const newPositions = monthLabels.map((label) => {
+      const weekRef = weekRefs.current[label.weekIndex]
+      if (!weekRef || !gridRef.current) return 0
+
+      const rect = weekRef.getBoundingClientRect()
+      const gridRect = gridRef.current.getBoundingClientRect()
+      return rect.left - gridRect.left
+    })
+
+    setLabelPositions(newPositions)
+
+    // Log the new positions
+    console.log("Recalculated positions:", newPositions)
+  }
+
   return (
-    <TooltipProvider>
+    <TooltipProvider delayDuration={300} skipDelayDuration={0}>
       <div className="space-y-4">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2">
@@ -300,6 +397,29 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
             <Button variant="ghost" size="icon" onClick={goToNextYear} className="h-8 w-8" aria-label="Next Year">
               <ChevronRight className="h-4 w-4" />
             </Button>
+
+            {/* Debug button */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={logPositions}
+              className="h-8 w-8 ml-2"
+              aria-label="Debug Positions"
+              title="Log positions to console"
+            >
+              <Bug className="h-4 w-4" />
+            </Button>
+
+            {/* Force recalculate button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={forceRecalculate}
+              className="ml-2"
+              title="Force recalculate positions"
+            >
+              Recalculate
+            </Button>
           </div>
 
           <Tooltip>
@@ -308,7 +428,7 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
                 <Info className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>
+            <TooltipContent side="top" align="center">
               <div className="space-y-2 p-1">
                 <p className="text-xs font-medium">Activity Legend</p>
                 <div className="flex items-center gap-2">
@@ -336,22 +456,9 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
           </Tooltip>
         </div>
 
-        {/* Month labels */}
-        <div className="relative pl-10 h-5">
-          {monthLabels.map((label, i) => (
-            <div
-              key={i}
-              className="absolute text-xs text-muted-foreground"
-              style={{ left: `${label.position * 16 + 10}px` }}
-            >
-              {label.month}
-            </div>
-          ))}
-        </div>
-
         <div className="flex">
           {/* Day of week labels */}
-          <div className="flex flex-col pr-2">
+          <div className="flex flex-col pr-2 w-10">
             {DAYS_OF_WEEK.map((day, index) => (
               <div key={day} className="h-4 mb-1 text-xs text-muted-foreground flex items-center justify-end">
                 {index % 2 === 0 ? day : ""}
@@ -359,19 +466,36 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
             ))}
           </div>
 
-          {/* Calendar grid */}
-          <div className="w-full overflow-x-auto md:overflow-visible pb-2">
-            <div className="flex gap-1 min-w-[800px] md:min-w-0 md:w-full">
+          {/* Calendar grid with month labels */}
+          <div className="w-full overflow-x-auto pb-2" ref={gridRef}>
+            {/* Month labels - positioned above the grid */}
+            <div className="relative h-5 mb-1">
+              {monthLabels.map((label, i) => (
+                <div
+                  key={i}
+                  className="absolute text-xs text-muted-foreground whitespace-nowrap"
+                  style={{
+                    left: `${labelPositions[i]}px`, // Use the calculated position
+                  }}
+                  ref={(el) => (labelRefs.current[i] = el)}
+                >
+                  {label.month}
+                </div>
+              ))}
+            </div>
+
+            {/* Calendar grid */}
+            <div className="flex gap-1 min-w-[800px]">
               {cells.length > 0 &&
                 cells[0].map((_, weekIndex) => (
                   <div
                     key={weekIndex}
                     className="flex flex-col gap-1"
                     style={{
-                      width: `${100 / cells[0].length}%`,
-                      minWidth: "12px",
-                      maxWidth: "16px",
+                      width: "16px",
+                      minWidth: "16px",
                     }}
+                    ref={(el) => (weekRefs.current[weekIndex] = el)}
                   >
                     {cells.map((dayRow, dayIndex) => {
                       if (weekIndex >= dayRow.length) return null
@@ -412,7 +536,7 @@ export function StreakBar({ startDate, endDate, progress, color, onDateClick, on
                               aria-label={format(date, "EEEE, MMMM d, yyyy")}
                             />
                           </TooltipTrigger>
-                          <TooltipContent>
+                          <TooltipContent side="top" align="center">
                             <div className="text-xs">
                               <p className="font-medium">{format(date, "EEEE, MMMM d, yyyy")}</p>
                               <p>

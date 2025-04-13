@@ -1,25 +1,21 @@
-"use client";
+"use client"
 
-import type React from "react";
+import type React from "react"
 
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import type { Goal } from "./goal-tracker";
-import { CalendarIcon } from "lucide-react";
-import { format } from "date-fns";
-import { Calendar } from "@/components/ui/calendar";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
+import { useState } from "react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import type { Goal } from "./goal-tracker"
+import { CalendarIcon } from "lucide-react"
+import { format } from "date-fns"
+import { Calendar } from "@/components/ui/calendar"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { cn } from "@/lib/utils"
 
 interface GoalFormProps {
-  onSubmit: (goal: Omit<Goal, "id" | "progress">) => void;
-  onCancel: () => void;
+  onSubmit: (goal: Omit<Goal, "id" | "progress">) => void
+  onCancel: () => void
 }
 
 // Predefined colors for the color picker
@@ -32,31 +28,28 @@ const COLORS = [
   "#eab308", // yellow-500
   "#14b8a6", // teal-500
   "#ef4444", // red-500
-];
+]
 
 export function GoalForm({ onSubmit, onCancel }: GoalFormProps) {
-  const [title, setTitle] = useState("");
-  const [startDate, setStartDate] = useState<Date>(new Date());
-  const [endDate, setEndDate] = useState<Date>(new Date());
-  const [color, setColor] = useState(COLORS[0]);
+  const [title, setTitle] = useState("")
+  const [startDate, setStartDate] = useState<Date>(new Date())
+  const [endDate, setEndDate] = useState<Date>(new Date())
+  const [color, setColor] = useState(COLORS[0])
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title || !startDate || !endDate) return;
+    e.preventDefault()
+    if (!title || !startDate || !endDate) return
 
     onSubmit({
       title,
       startDate,
       endDate,
       color,
-    });
-  };
+    })
+  }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="space-y-4 p-4 border rounded-lg border-border"
-    >
+    <form onSubmit={handleSubmit} className="space-y-4 p-4 border rounded-lg border-border">
       <div className="space-y-2">
         <Label htmlFor="title">Goal Title</Label>
         <Input
@@ -75,10 +68,7 @@ export function GoalForm({ onSubmit, onCancel }: GoalFormProps) {
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
-                className={cn(
-                  "w-full justify-start text-left font-normal",
-                  !startDate && "text-muted-foreground"
-                )}
+                className={cn("w-full justify-start text-left font-normal", !startDate && "text-muted-foreground")}
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
                 {startDate ? format(startDate, "PPP") : "Select date"}
@@ -101,10 +91,7 @@ export function GoalForm({ onSubmit, onCancel }: GoalFormProps) {
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
-                className={cn(
-                  "w-full justify-start text-left font-normal",
-                  !endDate && "text-muted-foreground"
-                )}
+                className={cn("w-full justify-start text-left font-normal", !endDate && "text-muted-foreground")}
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
                 {endDate ? format(endDate, "PPP") : "Select date"}
@@ -132,9 +119,7 @@ export function GoalForm({ onSubmit, onCancel }: GoalFormProps) {
               type="button"
               className={cn(
                 "w-8 h-8 rounded-full transition-all",
-                color === c
-                  ? "ring-2 ring-offset-2 ring-offset-background ring-primary"
-                  : ""
+                color === c ? "ring-2 ring-offset-2 ring-offset-background ring-primary" : "",
               )}
               style={{ backgroundColor: c }}
               onClick={() => setColor(c)}
@@ -163,5 +148,5 @@ export function GoalForm({ onSubmit, onCancel }: GoalFormProps) {
         <Button type="submit">Save Goal</Button>
       </div>
     </form>
-  );
+  )
 }
