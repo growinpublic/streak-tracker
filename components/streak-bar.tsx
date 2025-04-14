@@ -57,22 +57,26 @@ export function StreakBar({
   const [monthLabels, setMonthLabels] = useState<{ month: string; weekIndex: number }[]>([])
   const [labelPositions, setLabelPositions] = useState<number[]>([])
   const [shouldScrollToToday, setShouldScrollToToday] = useState(true)
+  const [isCalculatingPositions, setIsCalculatingPositions] = useState(true)
   const gridRef = useRef<HTMLDivElement>(null)
   const gridContainerRef = useRef<HTMLDivElement>(null)
   const weekRefs = useRef<(HTMLDivElement | null)[]>([])
   const labelRefs = useRef<(HTMLDivElement | null)[]>([])
   const hasScrolledRef = useRef(false)
+  const calculationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Navigate to previous year
   const goToPreviousYear = () => {
     setDisplayYear((prev) => prev - 1)
     hasScrolledRef.current = false
+    setIsCalculatingPositions(true)
   }
 
   // Navigate to next year
   const goToNextYear = () => {
     setDisplayYear((prev) => prev + 1)
     hasScrolledRef.current = false
+    setIsCalculatingPositions(true)
   }
 
   // Generate calendar grid for the selected year
@@ -151,12 +155,23 @@ export function StreakBar({
     if (displayYear === currentYear) {
       setShouldScrollToToday(true)
     }
+
+    // Set calculating positions to true when grid changes
+    setIsCalculatingPositions(true)
   }, [displayYear, currentYear]) // Re-run when displayYear changes
 
   // Calculate label positions after DOM is updated
   useEffect(() => {
     // Skip if no labels or grid
     if (!monthLabels.length || !gridRef.current) return
+
+    // Clear any existing timeout
+    if (calculationTimeoutRef.current) {
+      clearTimeout(calculationTimeoutRef.current)
+    }
+
+    // Set calculating to true
+    setIsCalculatingPositions(true)
 
     // Use requestAnimationFrame to ensure DOM is updated
     const rafId = requestAnimationFrame(() => {
@@ -170,9 +185,20 @@ export function StreakBar({
       })
 
       setLabelPositions(newPositions)
+
+      // Add a small delay before setting calculating to false
+      // This ensures the positions are applied to the DOM
+      calculationTimeoutRef.current = setTimeout(() => {
+        setIsCalculatingPositions(false)
+      }, 100)
     })
 
-    return () => cancelAnimationFrame(rafId)
+    return () => {
+      cancelAnimationFrame(rafId)
+      if (calculationTimeoutRef.current) {
+        clearTimeout(calculationTimeoutRef.current)
+      }
+    }
   }, [monthLabels, cells]) // Re-run when labels or cells change
 
   // Find today's position if we're viewing the current year
@@ -220,7 +246,7 @@ export function StreakBar({
 
   // Effect to scroll to today when needed
   useEffect(() => {
-    if (!shouldScrollToToday || !cells.length || displayYear !== currentYear) return
+    if (!shouldScrollToToday || !cells.length || displayYear !== currentYear || isCalculatingPositions) return
 
     // Delay to ensure DOM is fully rendered
     const timeoutId = setTimeout(() => {
@@ -228,7 +254,7 @@ export function StreakBar({
     }, 300)
 
     return () => clearTimeout(timeoutId)
-  }, [shouldScrollToToday, cells, displayYear, currentYear, performScrollToToday])
+  }, [shouldScrollToToday, cells, displayYear, currentYear, performScrollToToday, isCalculatingPositions])
 
   // Manual scroll to today function
   const scrollToToday = () => {
@@ -450,6 +476,8 @@ export function StreakBar({
   const forceRecalculate = () => {
     if (!monthLabels.length || !gridRef.current) return
 
+    setIsCalculatingPositions(true)
+
     const newPositions = monthLabels.map((label) => {
       const weekRef = weekRefs.current[label.weekIndex]
       if (!weekRef || !gridRef.current) return 0
@@ -463,6 +491,11 @@ export function StreakBar({
 
     // Log the new positions
     console.log("Recalculated positions:", newPositions)
+
+    // Add a small delay before setting calculating to false
+    setTimeout(() => {
+      setIsCalculatingPositions(false)
+    }, 100)
   }
 
   return (
@@ -578,18 +611,24 @@ export function StreakBar({
             <div ref={gridRef}>
               {/* Month labels - positioned above the grid */}
               <div className="relative h-5 mb-1">
-                {monthLabels.map((label, i) => (
-                  <div
-                    key={i}
-                    className="absolute text-xs text-muted-foreground whitespace-nowrap"
-                    style={{
-                      left: `${labelPositions[i]}px`, // Use the calculated position
-                    }}
-                    ref={(el) => (labelRefs.current[i] = el)}
-                  >
-                    {label.month}
+                {isCalculatingPositions ? (
+                  <div className="flex justify-center items-center h-full">
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary"></div>
                   </div>
-                ))}
+                ) : (
+                  monthLabels.map((label, i) => (
+                    <div
+                      key={i}
+                      className="absolute text-xs text-muted-foreground whitespace-nowrap"
+                      style={{
+                        left: `${labelPositions[i]}px`, // Use the calculated position
+                      }}
+                      ref={(el) => (labelRefs.current[i] = el)}
+                    >
+                      {label.month}
+                    </div>
+                  ))
+                )}
               </div>
 
               {/* Calendar grid */}
@@ -694,6 +733,13 @@ export function StreakBar({
           </div>
           <div className="text-sm font-medium">{calculateCompletion()}% complete</div>
         </div>
+
+        {/* Global loading indicator when calculating positions */}
+        {isCalculatingPositions && (
+          <div className="fixed bottom-4 right-4 bg-background border border-border rounded-full p-2 shadow-md z-50">
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
+          </div>
+        )}
       </div>
     </TooltipProvider>
   )

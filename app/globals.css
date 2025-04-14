@@ -103,3 +103,43 @@ body {
   opacity: 0;
   transition: opacity 0.2s ease-in-out;
 }
+
+/* Ensure goal title color dots remain circular */
+.goal-title-dot {
+  min-width: 12px;
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+/* Achievement popup animations */
+@keyframes achievement-enter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -20px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes achievement-exit {
+  from {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -20px);
+  }
+}
+
+.achievement-enter {
+  animation: achievement-enter 0.5s ease-out forwards;
+}
+
+.achievement-exit {
+  animation: achievement-exit 0.5s ease-in forwards;
+}

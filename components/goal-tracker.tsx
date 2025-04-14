@@ -37,6 +37,9 @@ import { MobileDialog } from "./mobile-dialog"
 import { NoteDialog } from "./note-dialog"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
+import { CustomDropdown } from "./custom-dropdown"
+import { GoalCelebration } from "./goal-celebration"
+import { AchievementPopup } from "./achievement-popup"
 
 export interface Goal {
   id: string
@@ -89,6 +92,22 @@ export function GoalTracker() {
   // State for the note dialog
   const [noteDialogOpen, setNoteDialogOpen] = useState(false)
   const [noteInfo, setNoteInfo] = useState<{ goalId: string; date: string; initialNote: string } | null>(null)
+
+  // State for delete confirmation
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deleteGoalId, setDeleteGoalId] = useState<string | null>(null)
+
+  // State for celebration animation
+  const [celebrationVisible, setCelebrationVisible] = useState(false)
+  const [celebrationColor, setCelebrationColor] = useState("")
+  const [celebrationRect, setCelebrationRect] = useState<DOMRect | null>(null)
+
+  // State for achievement popup
+  const [achievementPopupVisible, setAchievementPopupVisible] = useState(false)
+  const [achievedGoalTitle, setAchievedGoalTitle] = useState("")
+
+  // Refs for goal elements
+  const goalRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   // Load goals from database
   const loadGoals = async () => {
@@ -143,6 +162,44 @@ export function GoalTracker() {
     }
   }
 
+  // Check if a goal is completed
+  const isGoalCompleted = (goal: Goal) => {
+    // Normalize dates for comparison
+    const start = new Date(goal.startDate)
+    start.setHours(0, 0, 0, 0)
+
+    const end = new Date(goal.endDate)
+    end.setHours(0, 0, 0, 0)
+
+    // Calculate total days in the goal range (inclusive)
+    const totalDays = differenceInDays(end, start) + 1
+
+    // Count only progress dates that are within the goal range
+    const validProgressDates = goal.progress.filter((dateStr) => {
+      const date = new Date(dateStr)
+      date.setHours(0, 0, 0, 0)
+      return date >= start && date <= end
+    })
+
+    // Goal is completed when all days are marked as completed
+    return validProgressDates.length >= totalDays
+  }
+
+  // Check if a goal was just completed with this update
+  const checkGoalCompletion = (goalId: string, newProgress: string[]) => {
+    const goal = goals.find((g) => g.id === goalId)
+    if (!goal) return false
+
+    // Create a copy of the goal with the new progress
+    const updatedGoal = { ...goal, progress: newProgress }
+
+    // Check if the goal wasn't completed before but is now
+    const wasCompletedBefore = isGoalCompleted(goal)
+    const isCompletedNow = isGoalCompleted(updatedGoal)
+
+    return !wasCompletedBefore && isCompletedNow
+  }
+
   const updateProgress = async (goalId: string, date: string) => {
     try {
       const goal = goals.find((g) => g.id === goalId)
@@ -161,10 +218,26 @@ export function GoalTracker() {
       } else {
         // If not completed, add it and show the note dialog
         const newProgress = [...goal.progress, date]
+
+        // Check if this update completes the goal
+        const justCompleted = checkGoalCompletion(goalId, newProgress)
+
         await updateGoalProgress(goalId, newProgress)
 
         // Update local state
         setGoals((prev) => prev.map((g) => (g.id === goalId ? { ...g, progress: newProgress } : g)))
+
+        // If the goal was just completed, trigger celebration
+        if (justCompleted) {
+          const goalElement = goalRefs.current[goalId]
+          if (goalElement) {
+            setCelebrationColor(goal.color)
+            setCelebrationRect(goalElement.getBoundingClientRect())
+            setCelebrationVisible(true)
+            setAchievedGoalTitle(goal.title)
+            setAchievementPopupVisible(true)
+          }
+        }
 
         // Open note dialog
         setNoteInfo({
@@ -195,19 +268,32 @@ export function GoalTracker() {
     }
   }
 
-  const deleteGoal = async (goalId: string) => {
+  // Show delete confirmation dialog
+  const confirmDeleteGoal = (goalId: string) => {
+    setDeleteGoalId(goalId)
+    setDeleteDialogOpen(true)
+  }
+
+  // Delete goal after confirmation
+  const deleteGoal = async () => {
+    if (!deleteGoalId) return
+
     try {
-      await dbDeleteGoal(goalId)
+      await dbDeleteGoal(deleteGoalId)
 
       // Update local state
-      setGoals((prev) => prev.filter((g) => g.id !== goalId))
+      setGoals((prev) => prev.filter((g) => g.id !== deleteGoalId))
 
       // Remove from collapsed state if present
-      if (collapsedGoals[goalId]) {
+      if (collapsedGoals[deleteGoalId]) {
         const newCollapsedGoals = { ...collapsedGoals }
-        delete newCollapsedGoals[goalId]
+        delete newCollapsedGoals[deleteGoalId]
         setCollapsedGoals(newCollapsedGoals)
       }
+
+      // Reset state
+      setDeleteGoalId(null)
+      setDeleteDialogOpen(false)
     } catch (error) {
       console.error("Failed to delete goal:", error)
     }
@@ -249,11 +335,26 @@ export function GoalTracker() {
         allDates.push(format(date, "yyyy-MM-dd"))
       }
 
+      // Check if this update completes the goal
+      const justCompleted = checkGoalCompletion(goalId, allDates)
+
       // Update progress with all dates
       await updateGoalProgress(goalId, allDates)
 
       // Update local state
       setGoals((prev) => prev.map((g) => (g.id === goalId ? { ...g, progress: allDates } : g)))
+
+      // If the goal was just completed, trigger celebration
+      if (justCompleted) {
+        const goalElement = goalRefs.current[goalId]
+        if (goalElement) {
+          setCelebrationColor(goal.color)
+          setCelebrationRect(goalElement.getBoundingClientRect())
+          setCelebrationVisible(true)
+          setAchievedGoalTitle(goal.title)
+          setAchievementPopupVisible(true)
+        }
+      }
     } catch (error) {
       console.error("Failed to fill progress:", error)
     }
@@ -422,6 +523,12 @@ export function GoalTracker() {
     }
   }
 
+  // Handle celebration completion
+  const handleCelebrationComplete = () => {
+    setCelebrationVisible(false)
+    setCelebrationRect(null)
+  }
+
   if (loading) {
     return <LoadingSpinner />
   }
@@ -447,13 +554,17 @@ export function GoalTracker() {
       {goals.length > 0 ? (
         <div className="space-y-6">
           {goals.map((goal) => (
-            <div key={goal.id} className="space-y-3 p-4 border rounded-lg border-border overflow-hidden">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                <div className="flex items-center gap-2">
+            <div
+              key={goal.id}
+              className="space-y-3 p-4 border rounded-lg border-border overflow-hidden"
+              ref={(el) => (goalRefs.current[goal.id] = el)}
+            >
+              <div className="flex flex-col md:flex-row md:items-center gap-2">
+                <div className="flex items-center gap-2 flex-grow min-w-0">
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-6 w-6"
+                    className="h-6 w-6 flex-shrink-0"
                     onClick={() => toggleCollapse(goal.id)}
                     aria-label={collapsedGoals[goal.id] ? "Expand goal" : "Collapse goal"}
                   >
@@ -462,12 +573,12 @@ export function GoalTracker() {
                     />
                   </Button>
 
-                  <div className="space-y-1 flex-1">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: goal.color }} />
+                  <div className="goal-title-dot" style={{ backgroundColor: goal.color }} />
 
+                  <div className="space-y-1 min-w-0 flex-1 max-w-full">
+                    <div className="flex items-center gap-2 max-w-full">
                       {editingTitle === goal.id ? (
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 w-full">
                           <Input
                             ref={titleInputRef}
                             value={editTitleValue}
@@ -479,7 +590,7 @@ export function GoalTracker() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-6 w-6"
+                            className="h-6 w-6 flex-shrink-0"
                             onClick={() => saveEditedTitle(goal.id)}
                             aria-label="Save title"
                           >
@@ -488,7 +599,7 @@ export function GoalTracker() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-6 w-6"
+                            className="h-6 w-6 flex-shrink-0"
                             onClick={cancelEditingTitle}
                             aria-label="Cancel editing"
                           >
@@ -496,12 +607,12 @@ export function GoalTracker() {
                           </Button>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1 goal-title-container">
-                          <h3 className="text-xl font-medium">{goal.title}</h3>
+                        <div className="flex items-center gap-1 goal-title-container min-w-0 w-full">
+                          <h3 className="text-xl font-medium truncate">{goal.title}</h3>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-6 w-6 edit-title-button"
+                            className="h-6 w-6 edit-title-button flex-shrink-0"
                             onClick={() => startEditingTitle(goal.id, goal.title)}
                             aria-label="Edit title"
                           >
@@ -519,7 +630,7 @@ export function GoalTracker() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 self-start md:self-center">
+                <div className="flex items-center gap-2 self-start md:self-center flex-shrink-0">
                   <div className="flex flex-col">
                     <Button
                       variant="ghost"
@@ -544,25 +655,26 @@ export function GoalTracker() {
                   </div>
 
                   {!collapsedGoals[goal.id] && (
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => clearProgress(goal.id)}
-                        title="Clear all progress"
-                      >
-                        <XCircle className="h-4 w-4 mr-2" />
-                        Clear
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => fillProgress(goal.id)} title="Fill all dates">
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        Fill
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => deleteGoal(goal.id)} title="Delete this goal">
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete
-                      </Button>
-                    </div>
+                    <CustomDropdown
+                      items={[
+                        {
+                          label: "Clear Progress",
+                          icon: <XCircle className="h-4 w-4" />,
+                          onClick: () => clearProgress(goal.id),
+                        },
+                        {
+                          label: "Fill All Dates",
+                          icon: <CheckCircle className="h-4 w-4" />,
+                          onClick: () => fillProgress(goal.id),
+                        },
+                        {
+                          label: "Delete Goal",
+                          icon: <Trash2 className="h-4 w-4" />,
+                          onClick: () => confirmDeleteGoal(goal.id),
+                          className: "text-destructive",
+                        },
+                      ]}
+                    />
                   )}
                 </div>
               </div>
@@ -618,6 +730,32 @@ export function GoalTracker() {
         initialNote={noteInfo?.initialNote || ""}
         onSave={saveNote}
         title="Add Note"
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <MobileDialog
+        isOpen={deleteDialogOpen}
+        onClose={() => setDeleteDialogOpen(false)}
+        title="Delete Goal"
+        description="Are you sure you want to delete this goal? This action cannot be undone."
+        onConfirm={deleteGoal}
+        confirmText="Delete"
+        cancelText="Cancel"
+      />
+
+      {/* Goal Celebration Animation */}
+      <GoalCelebration
+        isVisible={celebrationVisible}
+        color={celebrationColor}
+        sourceRect={celebrationRect}
+        onComplete={handleCelebrationComplete}
+      />
+
+      {/* Achievement Popup */}
+      <AchievementPopup
+        isVisible={achievementPopupVisible}
+        goalTitle={achievedGoalTitle}
+        onClose={() => setAchievementPopupVisible(false)}
       />
     </div>
   )
