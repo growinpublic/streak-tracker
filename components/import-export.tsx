@@ -177,12 +177,12 @@ export function ImportExport({ onImportComplete }: { onImportComplete: () => voi
     <>
       <div className="flex gap-2">
         <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
-          <Download className="h-4 w-4 mr-2" />
-          {exporting ? "Exporting..." : "Export CSV"}
+          <Download className="h-4 w-4 sm:mr-2" />
+          <span className="hidden sm:inline">{exporting ? "Exporting..." : "Export CSV"}</span>
         </Button>
         <Button variant="outline" size="sm" onClick={handleImportClick} disabled={importing}>
-          <Upload className="h-4 w-4 mr-2" />
-          {importing ? "Importing..." : "Import CSV"}
+          <Upload className="h-4 w-4 sm:mr-2" />
+          <span className="hidden sm:inline">{importing ? "Importing..." : "Import CSV"}</span>
         </Button>
         <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv" className="hidden" />
       </div>

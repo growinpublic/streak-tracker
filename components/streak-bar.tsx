@@ -500,34 +500,40 @@ export function StreakBar({
 
   return (
     <TooltipProvider delayDuration={300} skipDelayDuration={0}>
-      <div className="space-y-4">
+      <div className="space-y-4 border rounded-lg p-4 bg-gray-50/50 dark:bg-gray-900/20">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
               size="icon"
               onClick={goToPreviousYear}
-              className="h-8 w-8"
+              className="h-7 w-7 sm:h-8 sm:w-8"
               aria-label="Previous Year"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
 
             <div className="text-sm font-medium">
-              {displayYear} Activity
+              {displayYear}
               {isMultiYearGoal && (
-                <span className="text-xs text-muted-foreground ml-2">
+                <span className="hidden sm:inline text-xs text-muted-foreground ml-2">
                   (Range spans {goalStartYear} - {goalEndYear})
                 </span>
               )}
             </div>
 
-            <Button variant="ghost" size="icon" onClick={goToNextYear} className="h-8 w-8" aria-label="Next Year">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={goToNextYear}
+              className="h-7 w-7 sm:h-8 sm:w-8"
+              aria-label="Next Year"
+            >
               <ChevronRight className="h-4 w-4" />
             </Button>
 
             {/* Today button */}
-            <Button variant="outline" size="sm" onClick={scrollToToday} className="ml-2 text-xs">
+            <Button variant="outline" size="sm" onClick={scrollToToday} className="ml-2 text-xs h-7 sm:h-8">
               Today
             </Button>
 
@@ -538,7 +544,7 @@ export function StreakBar({
                   variant="ghost"
                   size="icon"
                   onClick={logPositions}
-                  className="h-8 w-8 ml-2"
+                  className="h-7 w-7 sm:h-8 sm:w-8 ml-2"
                   aria-label="Debug Positions"
                   title="Log positions to console"
                 >
@@ -560,7 +566,7 @@ export function StreakBar({
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8">
                 <Info className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
@@ -727,11 +733,11 @@ export function StreakBar({
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-          <div className="text-sm">
+        <div className="flex flex-row justify-between items-center gap-2">
+          <div className="text-xs sm:text-sm">
             {countValidProgressDays()} of {totalDays} days completed
           </div>
-          <div className="text-sm font-medium">{calculateCompletion()}% complete</div>
+          <div className="text-xs sm:text-sm font-medium">{calculateCompletion()}% complete</div>
         </div>
 
         {/* Global loading indicator when calculating positions */}

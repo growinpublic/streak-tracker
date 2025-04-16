@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils"
 
 interface GoalFormProps {
-  onSubmit: (goal: Omit<Goal, "id" | "progress">) => void
+  onSubmit: (goal: Omit<Goal, "id" | "progress" | "order" | "notes" | "tabId">) => void
   onCancel: () => void
 }
 

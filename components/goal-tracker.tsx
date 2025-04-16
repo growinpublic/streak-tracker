@@ -9,8 +9,6 @@ import { Button } from "@/components/ui/button"
 import {
   PlusCircle,
   Trash2,
-  ChevronUp,
-  ChevronDown,
   XCircle,
   CheckCircle,
   ChevronRight,
@@ -19,20 +17,24 @@ import {
   X,
   ChevronsUp,
   ChevronsDown,
+  Share2,
 } from "lucide-react"
 import {
   type GoalRecord,
+  type TabRecord,
   getAllGoals,
+  getAllTabs,
   addGoal as dbAddGoal,
+  addTab as dbAddTab,
   deleteGoal as dbDeleteGoal,
   updateGoalProgress,
-  updateGoalOrder,
   updateGoal as dbUpdateGoal,
   updateGoalNote,
+  deleteTabAndMoveGoals,
 } from "@/lib/db"
 import { LoadingSpinner } from "./loading-spinner"
 import { ImportExport } from "./import-export"
-import { differenceInDays, addDays, format } from "date-fns"
+import { differenceInDays, addDays, format, isWithinInterval } from "date-fns"
 import { MobileDialog } from "./mobile-dialog"
 import { NoteDialog } from "./note-dialog"
 import { Input } from "@/components/ui/input"
@@ -40,6 +42,9 @@ import { Separator } from "@/components/ui/separator"
 import { CustomDropdown } from "./custom-dropdown"
 import { GoalCelebration } from "./goal-celebration"
 import { AchievementPopup } from "./achievement-popup"
+import { TabNavigation } from "./tab-navigation"
+import { GoalReorderButtons } from "./goal-reorder-buttons"
+import { cn } from "@/lib/utils"
 
 export interface Goal {
   id: string
@@ -50,6 +55,7 @@ export interface Goal {
   color: string
   order: number
   notes: Record<string, string> // Map of date strings to notes
+  tabId: string // Tab this goal belongs to
 }
 
 function recordToGoal(record: GoalRecord): Goal {
@@ -59,6 +65,7 @@ function recordToGoal(record: GoalRecord): Goal {
     endDate: new Date(record.endDate),
     order: record.order || 0, // Default to 0 if order is not set
     notes: record.notes || {}, // Default to empty object if notes is not set
+    tabId: record.tabId || "", // Default to empty string if tabId is not set
   }
 }
 
@@ -69,13 +76,19 @@ function goalToRecord(goal: Goal): GoalRecord {
     endDate: goal.endDate.toISOString(),
     order: goal.order || 0, // Default to 0 if order is not set
     notes: goal.notes || {}, // Default to empty object if notes is not set
+    tabId: goal.tabId || "", // Default to empty string if tabId is not set
   }
 }
 
 export function GoalTracker() {
   const [showForm, setShowForm] = useState(false)
   const [goals, setGoals] = useState<Goal[]>([])
+  const [tabs, setTabs] = useState<TabRecord[]>([])
+  const [activeTabId, setActiveTabId] = useState<string>("")
   const [loading, setLoading] = useState(true)
+  const [isMoving, setIsMoving] = useState(false)
+  const [shareDialogOpen, setShareDialogOpen] = useState(false)
+  const [shareText, setShareText] = useState("")
 
   // State for collapsible goals
   const [collapsedGoals, setCollapsedGoals] = useState<Record<string, boolean>>({})
@@ -97,6 +110,10 @@ export function GoalTracker() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deleteGoalId, setDeleteGoalId] = useState<string | null>(null)
 
+  // State for tab deletion confirmation
+  const [deleteTabDialogOpen, setDeleteTabDialogOpen] = useState(false)
+  const [deleteTabInfo, setDeleteTabInfo] = useState<{ tabId: string; tabName: string } | null>(null)
+
   // State for celebration animation
   const [celebrationVisible, setCelebrationVisible] = useState(false)
   const [celebrationColor, setCelebrationColor] = useState("")
@@ -109,27 +126,80 @@ export function GoalTracker() {
   // Refs for goal elements
   const goalRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
-  // Load goals from database
-  const loadGoals = async () => {
+  // Load tabs and goals from database
+  const loadData = async () => {
     try {
       setLoading(true)
-      const records = await getAllGoals()
-      const loadedGoals = records.map(recordToGoal)
+
+      // Load tabs first
+      let tabRecords = await getAllTabs()
+      console.log("Loaded tabs:", tabRecords)
+
+      // Create a default tab if none exist
+      if (tabRecords.length === 0) {
+        console.log("No tabs found, creating default tab")
+        const defaultTabId = crypto.randomUUID()
+        const defaultTab = {
+          id: defaultTabId,
+          name: "Tab1",
+          order: 0,
+        }
+
+        await dbAddTab(defaultTab)
+        tabRecords = [defaultTab]
+      }
+
+      // Sort tabs by order
+      tabRecords.sort((a, b) => a.order - b.order)
+      setTabs(tabRecords)
+
+      // Set active tab to the first tab if not already set
+      if (!activeTabId && tabRecords.length > 0) {
+        setActiveTabId(tabRecords[0].id)
+      }
+
+      // Load all goals
+      const goalRecords = await getAllGoals()
+      console.log("Loaded goals:", goalRecords)
+
+      // If any goals don't have a tabId, assign them to the first tab
+      const goalsToUpdate = []
+      for (const goal of goalRecords) {
+        if (!goal.tabId && tabRecords.length > 0) {
+          goal.tabId = tabRecords[0].id
+          goalsToUpdate.push(goal)
+        }
+      }
+
+      // Update goals with missing tabId
+      for (const goal of goalsToUpdate) {
+        await dbUpdateGoal(goal)
+      }
+
+      const loadedGoals = goalRecords.map(recordToGoal)
 
       // Sort goals by order
       loadedGoals.sort((a, b) => a.order - b.order)
-
       setGoals(loadedGoals)
+
+      // Initialize all goals as collapsed by default
+      if (loadedGoals.length > 0) {
+        const allCollapsed: Record<string, boolean> = {}
+        loadedGoals.forEach((goal) => {
+          allCollapsed[goal.id] = true
+        })
+        setCollapsedGoals(allCollapsed)
+      }
     } catch (error) {
-      console.error("Failed to load goals:", error)
+      console.error("Failed to load data:", error)
     } finally {
       setLoading(false)
     }
   }
 
-  // Load goals on component mount
+  // Load data on component mount
   useEffect(() => {
-    loadGoals()
+    loadData()
   }, [])
 
   // Focus the title input when editing starts
@@ -139,20 +209,113 @@ export function GoalTracker() {
     }
   }, [editingTitle])
 
-  const addGoal = async (goal: Omit<Goal, "id" | "progress" | "order" | "notes">) => {
+  // Add a new tab
+  const addTab = async () => {
     try {
       // Get the highest order value
-      const highestOrder = goals.length > 0 ? Math.max(...goals.map((g) => g.order)) : -1
+      const highestOrder = tabs.length > 0 ? Math.max(...tabs.map((t) => t.order)) : -1
+
+      // Generate a new tab number
+      const tabNumber = tabs.length + 1
+
+      const newTab: TabRecord = {
+        id: crypto.randomUUID(),
+        name: `Tab${tabNumber}`,
+        order: highestOrder + 1,
+      }
+
+      await dbAddTab(newTab)
+      console.log("Added new tab:", newTab)
+
+      // Update local state
+      setTabs((prev) => [...prev, newTab])
+
+      // Switch to the new tab
+      setActiveTabId(newTab.id)
+    } catch (error) {
+      console.error("Failed to add tab:", error)
+    }
+  }
+
+  // Delete a tab
+  const confirmDeleteTab = (tabId: string) => {
+    const tab = tabs.find((t) => t.id === tabId)
+    if (!tab) return
+
+    // Find another tab to move goals to
+    const otherTab = tabs.find((t) => t.id !== tabId)
+    if (!otherTab) {
+      // Can't delete the last tab
+      return
+    }
+
+    setDeleteTabInfo({ tabId, tabName: tab.name })
+    setDeleteTabDialogOpen(true)
+  }
+
+  // Delete tab after confirmation
+  const deleteTab = async () => {
+    if (!deleteTabInfo) return
+
+    try {
+      const { tabId } = deleteTabInfo
+
+      // Find another tab to move goals to and switch to
+      const otherTab = tabs.find((t) => t.id !== tabId)
+      if (!otherTab) return
+
+      // Delete tab and move its goals to the other tab
+      await deleteTabAndMoveGoals(tabId, otherTab.id)
+      console.log(`Deleted tab ${tabId} and moved goals to ${otherTab.id}`)
+
+      // Update local state
+      setTabs((prev) => prev.filter((t) => t.id !== tabId))
+      setGoals((prev) => prev.map((g) => (g.tabId === tabId ? { ...g, tabId: otherTab.id } : g)))
+
+      // Switch to the other tab
+      setActiveTabId(otherTab.id)
+
+      // Reset state
+      setDeleteTabInfo(null)
+      setDeleteTabDialogOpen(false)
+    } catch (error) {
+      console.error("Failed to delete tab:", error)
+    }
+  }
+
+  // Update tab name
+  const updateTabName = async (tabId: string, newName: string) => {
+    try {
+      // Update local state immediately for better UX
+      setTabs((prev) => prev.map((tab) => (tab.id === tabId ? { ...tab, name: newName } : tab)))
+
+      console.log(`Tab ${tabId} renamed to ${newName} in UI`)
+    } catch (error) {
+      console.error("Failed to update tab name in UI:", error)
+    }
+  }
+
+  // Add a new goal
+  const addGoal = async (goal: Omit<Goal, "id" | "progress" | "order" | "notes" | "tabId">) => {
+    try {
+      // Get all goals in the active tab
+      const tabGoals = goals.filter((g) => g.tabId === activeTabId)
+
+      // Find the lowest order value and subtract 10 to place the new goal at the top
+      const lowestOrder = tabGoals.length > 0 ? Math.min(...tabGoals.map((g) => g.order)) : 0
+      const newOrder = lowestOrder - 10 // Place new goal at the top with a lower order value
 
       const newGoal: Goal = {
         ...goal,
         id: crypto.randomUUID(),
         progress: [],
-        order: highestOrder + 1, // Place new goal at the end
+        order: newOrder,
         notes: {}, // Initialize with empty notes
+        tabId: activeTabId, // Automatically assign to active tab
       }
 
       await dbAddGoal(goalToRecord(newGoal))
+      console.log("Added new goal:", newGoal)
 
       // Update local state
       setGoals((prev) => [...prev, newGoal])
@@ -395,46 +558,6 @@ export function GoalTracker() {
     }
   }
 
-  // New function to move a goal up or down
-  const moveGoal = async (goalId: string, direction: "up" | "down") => {
-    try {
-      // Find the current goal and its index
-      const currentIndex = goals.findIndex((g) => g.id === goalId)
-      if (currentIndex === -1) return
-
-      // Calculate the target index
-      const targetIndex =
-        direction === "up" ? Math.max(0, currentIndex - 1) : Math.min(goals.length - 1, currentIndex + 1)
-
-      // If already at the top/bottom, do nothing
-      if (targetIndex === currentIndex) return
-
-      // Create a copy of the goals array for reordering
-      const updatedGoals = [...goals]
-
-      // Swap the goals
-      const temp = updatedGoals[currentIndex]
-      updatedGoals[currentIndex] = updatedGoals[targetIndex]
-      updatedGoals[targetIndex] = temp
-
-      // Update the order property for all goals
-      const reorderedGoals = updatedGoals.map((goal, index) => ({
-        ...goal,
-        order: index,
-      }))
-
-      // Update the database
-      for (const goal of reorderedGoals) {
-        await updateGoalOrder(goal.id, goal.order)
-      }
-
-      // Update the state
-      setGoals(reorderedGoals)
-    } catch (error) {
-      console.error("Failed to reorder goals:", error)
-    }
-  }
-
   // Function to view notes for a specific date
   const viewNotes = (goalId: string, date: string) => {
     const goal = goals.find((g) => g.id === goalId)
@@ -529,185 +652,443 @@ export function GoalTracker() {
     setCelebrationRect(null)
   }
 
+  // Count valid progress days for a goal (only those within the goal range)
+  const countValidProgressDays = (goal: Goal) => {
+    // Normalize dates for comparison
+    const start = new Date(goal.startDate)
+    start.setHours(0, 0, 0, 0)
+
+    const end = new Date(goal.endDate)
+    end.setHours(0, 0, 0, 0)
+
+    // Count only progress dates that are within the goal range
+    return goal.progress.filter((dateStr) => {
+      const date = new Date(dateStr)
+      date.setHours(0, 0, 0, 0)
+      return isWithinInterval(date, { start, end })
+    }).length
+  }
+
+  // Calculate total days in a goal
+  const calculateTotalDays = (goal: Goal) => {
+    return differenceInDays(new Date(goal.endDate), new Date(goal.startDate)) + 1
+  }
+
+  // Generate share text for today's summary
+  const generateShareText = () => {
+    const today = new Date()
+
+    // Format today's date
+    const formattedDate = format(today, "MMMM d, yyyy")
+
+    // Start with header
+    let text = `📊 Streak - ${formattedDate}\n\n`
+
+    // Sort goals by completion percentage (descending)
+    const sortedGoals = [...goals].sort((a, b) => {
+      const aProgress = countValidProgressDays(a) / calculateTotalDays(a)
+      const bProgress = countValidProgressDays(b) / calculateTotalDays(b)
+      return bProgress - aProgress
+    })
+
+    // Add each goal with the exact format requested
+    sortedGoals.forEach((goal) => {
+      const completedDays = countValidProgressDays(goal)
+      text += `☑️ Day ${completedDays}: ${goal.title}\n`
+    })
+
+    return text
+  }
+
+  // Share summary on social media
+  const shareGoalSummary = () => {
+    const text = generateShareText()
+    setShareText(text)
+
+    // Check if Web Share API is available
+    if (navigator.share) {
+      navigator
+        .share({
+          title: "My Streak Tracker Summary",
+          text: text,
+        })
+        .catch((error) => {
+          console.log("Error sharing:", error)
+          // Fallback to dialog if sharing fails
+          setShareDialogOpen(true)
+        })
+    } else {
+      // Fallback for browsers that don't support Web Share API
+      setShareDialogOpen(true)
+    }
+  }
+
+  // Share to Twitter/X
+  const shareToTwitter = () => {
+    const encodedText = encodeURIComponent(shareText)
+    window.open(`https://twitter.com/intent/tweet?text=${encodedText}`, "_blank")
+    setShareDialogOpen(false)
+  }
+
+  // Copy to clipboard
+  const copyToClipboard = () => {
+    navigator.clipboard
+      .writeText(shareText)
+      .then(() => {
+        alert("Summary copied to clipboard!")
+        setShareDialogOpen(false)
+      })
+      .catch((err) => {
+        console.error("Failed to copy text: ", err)
+      })
+  }
+
+  // COMPLETELY REWRITTEN REORDERING FUNCTIONS
+  // Move a goal up in the order
+  const moveGoalUp = async (goalId: string) => {
+    if (isMoving) return // Prevent multiple simultaneous reordering operations
+
+    try {
+      setIsMoving(true)
+      console.log("Moving goal up:", goalId)
+
+      // Get all goals in the current tab
+      const tabGoals = [...goals.filter((g) => g.tabId === activeTabId)]
+      tabGoals.sort((a, b) => a.order - b.order)
+
+      // Find the current goal's index
+      const currentIndex = tabGoals.findIndex((g) => g.id === goalId)
+      if (currentIndex <= 0) {
+        console.log("Already at the top, can't move up")
+        return // Already at the top
+      }
+
+      // Swap positions in the array
+      const newOrder = [...tabGoals]
+      const temp = newOrder[currentIndex]
+      newOrder[currentIndex] = newOrder[currentIndex - 1]
+      newOrder[currentIndex - 1] = temp
+
+      // Reassign all orders sequentially to avoid any order conflicts
+      const updatedGoals = newOrder.map((goal, index) => ({
+        ...goal,
+        order: index * 10, // Use multiples of 10 to leave room between values
+      }))
+
+      console.log("New goal order:", updatedGoals.map((g) => `${g.title}: ${g.order}`).join(", "))
+
+      // Update all goals in the database in sequence
+      const updatePromises = []
+      for (const goal of updatedGoals) {
+        updatePromises.push(dbUpdateGoal(goalToRecord(goal)))
+      }
+
+      // Wait for all updates to complete
+      await Promise.all(updatePromises)
+      console.log("Database updates completed")
+
+      // Only update the UI state after all database operations succeed
+      setGoals((prevGoals) => {
+        // Remove all goals from this tab
+        const otherTabGoals = prevGoals.filter((g) => g.tabId !== activeTabId)
+        // Add back the updated goals
+        return [...otherTabGoals, ...updatedGoals]
+      })
+
+      console.log("UI state updated")
+    } catch (error) {
+      console.error("Failed to move goal up:", error)
+      // Reload data from database to ensure UI is in sync
+      loadData()
+    } finally {
+      setTimeout(() => {
+        setIsMoving(false)
+        console.log("Move operation completed")
+      }, 500) // Add a small delay before allowing new operations
+    }
+  }
+
+  // Move a goal down in the order
+  const moveGoalDown = async (goalId: string) => {
+    if (isMoving) return // Prevent multiple simultaneous reordering operations
+
+    try {
+      setIsMoving(true)
+      console.log("Moving goal down:", goalId)
+
+      // Get all goals in the current tab
+      const tabGoals = [...goals.filter((g) => g.tabId === activeTabId)]
+      tabGoals.sort((a, b) => a.order - b.order)
+
+      // Find the current goal's index
+      const currentIndex = tabGoals.findIndex((g) => g.id === goalId)
+      if (currentIndex < 0 || currentIndex >= tabGoals.length - 1) {
+        console.log("Already at the bottom, can't move down")
+        return // Already at the bottom or not found
+      }
+
+      // Swap positions in the array
+      const newOrder = [...tabGoals]
+      const temp = newOrder[currentIndex]
+      newOrder[currentIndex] = newOrder[currentIndex + 1]
+      newOrder[currentIndex + 1] = temp
+
+      // Reassign all orders sequentially to avoid any order conflicts
+      const updatedGoals = newOrder.map((goal, index) => ({
+        ...goal,
+        order: index * 10, // Use multiples of 10 to leave room between values
+      }))
+
+      console.log("New goal order:", updatedGoals.map((g) => `${g.title}: ${g.order}`).join(", "))
+
+      // Update all goals in the database in sequence
+      const updatePromises = []
+      for (const goal of updatedGoals) {
+        updatePromises.push(dbUpdateGoal(goalToRecord(goal)))
+      }
+
+      // Wait for all updates to complete
+      await Promise.all(updatePromises)
+      console.log("Database updates completed")
+
+      // Only update the UI state after all database operations succeed
+      setGoals((prevGoals) => {
+        // Remove all goals from this tab
+        const otherTabGoals = prevGoals.filter((g) => g.tabId !== activeTabId)
+        // Add back the updated goals
+        return [...otherTabGoals, ...updatedGoals]
+      })
+
+      console.log("UI state updated")
+    } catch (error) {
+      console.error("Failed to move goal down:", error)
+      // Reload data from database to ensure UI is in sync
+      loadData()
+    } finally {
+      setTimeout(() => {
+        setIsMoving(false)
+        console.log("Move operation completed")
+      }, 500) // Add a small delay before allowing new operations
+    }
+  }
+
+  // Get goals for the active tab
+  const activeTabGoals = goals.filter((goal) => goal.tabId === activeTabId)
+
+  // Sort goals by order
+  activeTabGoals.sort((a, b) => a.order - b.order)
+
   if (loading) {
     return <LoadingSpinner />
   }
 
   return (
-    <div className="space-y-6 w-full">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h2 className="text-lg font-medium">Your Goals</h2>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={collapseAll} title="Collapse all goals">
-            <ChevronsUp className="h-4 w-4 mr-2" />
-            Collapse All
-          </Button>
-          <Button variant="outline" size="sm" onClick={expandAll} title="Expand all goals">
-            <ChevronsDown className="h-4 w-4 mr-2" />
-            Expand All
-          </Button>
-          <Separator orientation="vertical" className="h-8 hidden sm:block" />
-          <ImportExport onImportComplete={loadGoals} />
+    <div className="flex flex-col h-[calc(100vh-120px)]">
+      {/* Fixed header section with tabs and controls */}
+      <div className="flex-none">
+        {/* Tab Navigation - now at the very top */}
+        {tabs.length > 0 && (
+          <TabNavigation
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onTabChange={setActiveTabId}
+            onAddTab={addTab}
+            onDeleteTab={confirmDeleteTab}
+            onTabRename={(tabId, newName) => {
+              // Update the tabs in the local state
+              setTabs((prevTabs) => prevTabs.map((tab) => (tab.id === tabId ? { ...tab, name: newName } : tab)))
+            }}
+          />
+        )}
+
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3 sm:mb-4">
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => setShowForm(!showForm)} variant={showForm ? "secondary" : "default"} size="sm">
+              <PlusCircle className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">{showForm ? "Cancel" : "Add New Goal"}</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={collapseAll} title="Collapse all goals">
+              <ChevronsUp className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Collapse All</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={expandAll} title="Expand all goals">
+              <ChevronsDown className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Expand All</span>
+            </Button>
+            <Separator orientation="vertical" className="h-8 hidden sm:block" />
+            <ImportExport onImportComplete={loadData} />
+            <Button variant="outline" size="sm" onClick={shareGoalSummary} title="Share summary">
+              <Share2 className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Share</span>
+            </Button>
+          </div>
         </div>
+
+        {/* Goal form now appears at the top */}
+        {showForm && (
+          <div className="mb-3 sm:mb-4">
+            <GoalForm onSubmit={addGoal} onCancel={() => setShowForm(false)} />
+          </div>
+        )}
       </div>
 
-      {goals.length > 0 ? (
-        <div className="space-y-6">
-          {goals.map((goal) => (
-            <div
-              key={goal.id}
-              className="space-y-3 p-4 border rounded-lg border-border overflow-hidden"
-              ref={(el) => (goalRefs.current[goal.id] = el)}
-            >
-              <div className="flex flex-col md:flex-row md:items-center gap-2">
-                <div className="flex items-center gap-2 flex-grow min-w-0">
+      {/* Scrollable content area for goals */}
+      <div className="flex-grow overflow-y-auto pr-4">
+        {activeTabGoals.length > 0 ? (
+          <div className="space-y-4 sm:space-y-6 pb-6">
+            {activeTabGoals.map((goal, index) => (
+              <div
+                key={goal.id}
+                className="space-y-2 sm:space-y-3 p-3 sm:p-4 border rounded-lg border-border overflow-hidden"
+                ref={(el) => (goalRefs.current[goal.id] = el)}
+              >
+                <div className="flex items-center gap-1 sm:gap-2">
+                  {/* Collapse button */}
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-6 w-6 flex-shrink-0"
+                    className="h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0"
                     onClick={() => toggleCollapse(goal.id)}
                     aria-label={collapsedGoals[goal.id] ? "Expand goal" : "Collapse goal"}
                   >
                     <ChevronRight
-                      className={`h-4 w-4 transition-transform ${collapsedGoals[goal.id] ? "" : "rotate-90"}`}
+                      className={`h-3 w-3 sm:h-4 sm:w-4 transition-transform ${collapsedGoals[goal.id] ? "" : "rotate-90"}`}
                     />
                   </Button>
 
+                  {/* Color dot */}
                   <div className="goal-title-dot" style={{ backgroundColor: goal.color }} />
 
-                  <div className="space-y-1 min-w-0 flex-1 max-w-full">
-                    <div className="flex items-center gap-2 max-w-full">
-                      {editingTitle === goal.id ? (
-                        <div className="flex items-center gap-1 w-full">
-                          <Input
-                            ref={titleInputRef}
-                            value={editTitleValue}
-                            onChange={(e) => setEditTitleValue(e.target.value)}
-                            onKeyDown={(e) => handleTitleKeyDown(e, goal.id)}
-                            className="h-8 py-1 text-xl font-medium"
-                            autoFocus
-                          />
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 flex-shrink-0"
-                            onClick={() => saveEditedTitle(goal.id)}
-                            aria-label="Save title"
-                          >
-                            <Save className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 flex-shrink-0"
-                            onClick={cancelEditingTitle}
-                            aria-label="Cancel editing"
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1 goal-title-container min-w-0 w-full">
-                          <h3 className="text-xl font-medium truncate">{goal.title}</h3>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 edit-title-button flex-shrink-0"
-                            onClick={() => startEditingTitle(goal.id, goal.title)}
-                            aria-label="Edit title"
-                          >
-                            <Edit className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-
-                    {!collapsedGoals[goal.id] && (
-                      <div className="text-sm text-muted-foreground">
-                        {new Date(goal.startDate).toLocaleDateString()} to {new Date(goal.endDate).toLocaleDateString()}
+                  {/* Title section */}
+                  <div className="min-w-0 flex-1">
+                    {editingTitle === goal.id ? (
+                      <div className="flex items-center gap-1">
+                        <Input
+                          ref={titleInputRef}
+                          value={editTitleValue}
+                          onChange={(e) => setEditTitleValue(e.target.value)}
+                          onKeyDown={(e) => handleTitleKeyDown(e, goal.id)}
+                          className="h-7 sm:h-8 py-1 text-sm sm:text-base md:text-xl font-medium"
+                          autoFocus
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0"
+                          onClick={() => saveEditedTitle(goal.id)}
+                          aria-label="Save title"
+                        >
+                          <Save className="h-3 w-3 sm:h-4 sm:w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0"
+                          onClick={cancelEditingTitle}
+                          aria-label="Cancel editing"
+                        >
+                          <X className="h-3 w-3 sm:h-4 sm:w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 goal-title-container">
+                        <h3
+                          className={cn(
+                            "font-medium truncate",
+                            "text-sm sm:text-base md:text-xl", // Smaller on mobile, larger on desktop
+                          )}
+                        >
+                          {goal.title}
+                        </h3>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 sm:h-8 sm:w-8 edit-title-button flex-shrink-0"
+                          onClick={() => startEditingTitle(goal.id, goal.title)}
+                          aria-label="Edit title"
+                        >
+                          <Edit className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                        </Button>
                       </div>
                     )}
-                  </div>
-                </div>
 
-                <div className="flex items-center gap-2 self-start md:self-center flex-shrink-0">
-                  <div className="flex flex-col">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => moveGoal(goal.id, "up")}
-                      disabled={goals.indexOf(goal) === 0}
-                      aria-label="Move up"
-                    >
-                      <ChevronUp className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => moveGoal(goal.id, "down")}
-                      disabled={goals.indexOf(goal) === goals.length - 1}
-                      aria-label="Move down"
-                    >
-                      <ChevronDown className="h-4 w-4" />
-                    </Button>
+                    {/* Removed the goal date that was here */}
                   </div>
 
-                  {!collapsedGoals[goal.id] && (
-                    <CustomDropdown
-                      items={[
-                        {
-                          label: "Clear Progress",
-                          icon: <XCircle className="h-4 w-4" />,
-                          onClick: () => clearProgress(goal.id),
-                        },
-                        {
-                          label: "Fill All Dates",
-                          icon: <CheckCircle className="h-4 w-4" />,
-                          onClick: () => fillProgress(goal.id),
-                        },
-                        {
-                          label: "Delete Goal",
-                          icon: <Trash2 className="h-4 w-4" />,
-                          onClick: () => confirmDeleteGoal(goal.id),
-                          className: "text-destructive",
-                        },
-                      ]}
+                  {/* Action buttons - all in one row */}
+                  <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+                    {!collapsedGoals[goal.id] && (
+                      <CustomDropdown
+                        items={[
+                          {
+                            label: "Clear Progress",
+                            icon: <XCircle className="h-3 w-3 sm:h-4 sm:w-4" />,
+                            onClick: () => clearProgress(goal.id),
+                          },
+                          {
+                            label: "Fill All Dates",
+                            icon: <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4" />,
+                            onClick: () => fillProgress(goal.id),
+                          },
+                          {
+                            label: "Share Goal",
+                            icon: <Share2 className="h-3 w-3 sm:h-4 sm:w-4" />,
+                            onClick: () => {
+                              const completedDays = countValidProgressDays(goal)
+                              const today = new Date()
+                              const formattedDate = format(today, "MMMM d, yyyy")
+                              const text = `📊 Streak - ${formattedDate}\n\n☑️ Day ${completedDays}: ${goal.title}`
+                              setShareText(text)
+                              setShareDialogOpen(true)
+                            },
+                          },
+                          {
+                            label: "Delete Goal",
+                            icon: <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />,
+                            onClick: () => confirmDeleteGoal(goal.id),
+                            className: "text-destructive",
+                          },
+                        ]}
+                      />
+                    )}
+
+                    {/* Reorder buttons */}
+                    <GoalReorderButtons
+                      goal={goal}
+                      isFirst={index === 0}
+                      isLast={index === activeTabGoals.length - 1}
+                      onMoveUp={() => moveGoalUp(goal.id)}
+                      onMoveDown={() => moveGoalDown(goal.id)}
+                      isMoving={isMoving}
                     />
-                  )}
+                  </div>
                 </div>
+
+                {!collapsedGoals[goal.id] && (
+                  <StreakBar
+                    startDate={goal.startDate}
+                    endDate={goal.endDate}
+                    progress={goal.progress}
+                    color={goal.color}
+                    notes={goal.notes}
+                    onDateClick={(date) => updateProgress(goal.id, date)}
+                    onExtendEndDate={(date) => handleExtendEndDate(goal.id, date)}
+                    onViewNotes={(date) => viewNotes(goal.id, date)}
+                  />
+                )}
               </div>
-
-              {!collapsedGoals[goal.id] && (
-                <StreakBar
-                  startDate={goal.startDate}
-                  endDate={goal.endDate}
-                  progress={goal.progress}
-                  color={goal.color}
-                  notes={goal.notes}
-                  onDateClick={(date) => updateProgress(goal.id, date)}
-                  onExtendEndDate={(date) => handleExtendEndDate(goal.id, date)}
-                  onViewNotes={(date) => viewNotes(goal.id, date)}
-                />
-              )}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="text-center p-8 border border-dashed rounded-lg border-border">
-          <p className="text-muted-foreground mb-4">No goals added yet. Add your first goal to get started!</p>
-        </div>
-      )}
-
-      {showForm ? (
-        <GoalForm onSubmit={addGoal} onCancel={() => setShowForm(false)} />
-      ) : (
-        <Button onClick={() => setShowForm(true)} className="w-full">
-          <PlusCircle className="mr-2 h-4 w-4" />
-          Add New Goal
-        </Button>
-      )}
+            ))}
+          </div>
+        ) : (
+          <div className="text-center p-8 border border-dashed rounded-lg border-border">
+            <p className="text-muted-foreground mb-4 text-sm sm:text-base">
+              {tabs.length > 0
+                ? `No goals added to this tab yet. Add your first goal to get started!`
+                : `No goals added yet. Add your first goal to get started!`}
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Custom Mobile Dialog for Extending End Date */}
       <MobileDialog
@@ -743,6 +1124,40 @@ export function GoalTracker() {
         cancelText="Cancel"
       />
 
+      {/* Delete Tab Confirmation Dialog */}
+      <MobileDialog
+        isOpen={deleteTabDialogOpen}
+        onClose={() => setDeleteTabDialogOpen(false)}
+        title="Delete Tab"
+        description={`Are you sure you want to delete the "${deleteTabInfo?.tabName}" tab? All goals in this tab will be moved to another tab.`}
+        onConfirm={deleteTab}
+        confirmText="Delete Tab"
+        cancelText="Cancel"
+      />
+
+      {/* Share Dialog */}
+      <MobileDialog
+        isOpen={shareDialogOpen}
+        onClose={() => setShareDialogOpen(false)}
+        title="Share Summary"
+        description={
+          <div className="mt-2">
+            <div className="bg-muted p-3 rounded-md text-xs sm:text-sm mb-4 whitespace-pre-wrap">{shareText}</div>
+            <div className="flex flex-col gap-2">
+              <Button onClick={shareToTwitter} className="w-full">
+                Share to X (Twitter)
+              </Button>
+              <Button onClick={copyToClipboard} variant="outline" className="w-full">
+                Copy to Clipboard
+              </Button>
+            </div>
+          </div>
+        }
+        onConfirm={() => setShareDialogOpen(false)}
+        confirmText="Close"
+        cancelText=""
+      />
+
       {/* Goal Celebration Animation */}
       <GoalCelebration
         isVisible={celebrationVisible}
@@ -760,3 +1175,6 @@ export function GoalTracker() {
     </div>
   )
 }
+
+// Make sure the component is properly exported as default as well
+export default GoalTracker
