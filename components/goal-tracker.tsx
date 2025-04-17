@@ -46,6 +46,7 @@ import { TabNavigation } from "./tab-navigation"
 import { GoalReorderButtons } from "./goal-reorder-buttons"
 import { cn } from "@/lib/utils"
 
+// Update the Goal interface to include frequency
 export interface Goal {
   id: string
   title: string
@@ -56,8 +57,13 @@ export interface Goal {
   order: number
   notes: Record<string, string> // Map of date strings to notes
   tabId: string // Tab this goal belongs to
+  frequency?: {
+    count: number // How many times
+    period: "day" | "week" | "month" // Per what period
+  }
 }
 
+// Also update the recordToGoal function to handle frequency
 function recordToGoal(record: GoalRecord): Goal {
   return {
     ...record,
@@ -66,9 +72,11 @@ function recordToGoal(record: GoalRecord): Goal {
     order: record.order || 0, // Default to 0 if order is not set
     notes: record.notes || {}, // Default to empty object if notes is not set
     tabId: record.tabId || "", // Default to empty string if tabId is not set
+    frequency: record.frequency || undefined, // Add frequency field
   }
 }
 
+// Update the goalToRecord function to handle frequency
 function goalToRecord(goal: Goal): GoalRecord {
   return {
     ...goal,
@@ -77,6 +85,7 @@ function goalToRecord(goal: Goal): GoalRecord {
     order: goal.order || 0, // Default to 0 if order is not set
     notes: goal.notes || {}, // Default to empty object if notes is not set
     tabId: goal.tabId || "", // Default to empty string if tabId is not set
+    frequency: goal.frequency || undefined, // Add frequency field
   }
 }
 
@@ -118,10 +127,12 @@ export function GoalTracker() {
   const [celebrationVisible, setCelebrationVisible] = useState(false)
   const [celebrationColor, setCelebrationColor] = useState("")
   const [celebrationRect, setCelebrationRect] = useState<DOMRect | null>(null)
+  const [isFrequencyGoal, setIsFrequencyGoal] = useState(false)
 
   // State for achievement popup
   const [achievementPopupVisible, setAchievementPopupVisible] = useState(false)
   const [achievedGoalTitle, setAchievedGoalTitle] = useState("")
+  const [frequencyText, setFrequencyText] = useState("")
 
   // Refs for goal elements
   const goalRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -344,7 +355,26 @@ export function GoalTracker() {
       return date >= start && date <= end
     })
 
-    // Goal is completed when all days are marked as completed
+    // If using frequency, check against required completions
+    if (goal.frequency) {
+      const { count, period } = goal.frequency
+      let requiredCompletions = 0
+
+      if (period === "day") {
+        requiredCompletions = count * totalDays
+      } else if (period === "week") {
+        // More accurate calculation for weeks
+        const exactWeeks = totalDays / 7
+        requiredCompletions = Math.round(count * exactWeeks)
+      } else if (period === "month") {
+        const exactMonths = totalDays / 30
+        requiredCompletions = Math.round(count * exactMonths)
+      }
+
+      return validProgressDates.length >= requiredCompletions
+    }
+
+    // Standard completion check for daily goals
     return validProgressDates.length >= totalDays
   }
 
@@ -361,6 +391,27 @@ export function GoalTracker() {
     const isCompletedNow = isGoalCompleted(updatedGoal)
 
     return !wasCompletedBefore && isCompletedNow
+  }
+
+  // Format frequency text for achievement popup
+  const getFrequencyText = (goal: Goal) => {
+    if (!goal.frequency) return ""
+
+    const { count, period } = goal.frequency
+    const totalDays = differenceInDays(goal.endDate, goal.startDate) + 1
+
+    let periodText = ""
+    if (period === "day") {
+      periodText = `${count} per day`
+    } else if (period === "week") {
+      const exactWeeks = totalDays / 7
+      periodText = `${count} per week for ${Math.round(exactWeeks * 10) / 10} weeks`
+    } else if (period === "month") {
+      const exactMonths = totalDays / 30
+      periodText = `${count} per month for ${Math.round(exactMonths * 10) / 10} months`
+    }
+
+    return `You've completed your goal of ${periodText}!`
   }
 
   const updateProgress = async (goalId: string, date: string) => {
@@ -396,6 +447,15 @@ export function GoalTracker() {
           if (goalElement) {
             setCelebrationColor(goal.color)
             setCelebrationRect(goalElement.getBoundingClientRect())
+
+            // Set frequency-specific celebration properties
+            setIsFrequencyGoal(!!goal.frequency)
+            if (goal.frequency) {
+              setFrequencyText(getFrequencyText(goal))
+            } else {
+              setFrequencyText("")
+            }
+
             setCelebrationVisible(true)
             setAchievedGoalTitle(goal.title)
             setAchievementPopupVisible(true)
@@ -513,6 +573,15 @@ export function GoalTracker() {
         if (goalElement) {
           setCelebrationColor(goal.color)
           setCelebrationRect(goalElement.getBoundingClientRect())
+
+          // Set frequency-specific celebration properties
+          setIsFrequencyGoal(!!goal.frequency)
+          if (goal.frequency) {
+            setFrequencyText(getFrequencyText(goal))
+          } else {
+            setFrequencyText("")
+          }
+
           setCelebrationVisible(true)
           setAchievedGoalTitle(goal.title)
           setAchievementPopupVisible(true)
@@ -650,6 +719,7 @@ export function GoalTracker() {
   const handleCelebrationComplete = () => {
     setCelebrationVisible(false)
     setCelebrationRect(null)
+    setIsFrequencyGoal(false)
   }
 
   // Count valid progress days for a goal (only those within the goal range)
@@ -694,7 +764,11 @@ export function GoalTracker() {
     // Add each goal with the exact format requested
     sortedGoals.forEach((goal) => {
       const completedDays = countValidProgressDays(goal)
-      text += `☑️ Day ${completedDays}: ${goal.title}\n`
+
+      // Add frequency info if available
+      const frequencyInfo = goal.frequency ? ` (${goal.frequency.count}/${goal.frequency.period})` : ""
+
+      text += `☑️ Day ${completedDays}${frequencyInfo}: ${goal.title}\n`
     })
 
     return text
@@ -783,9 +857,14 @@ export function GoalTracker() {
         updatePromises.push(dbUpdateGoal(goalToRecord(goal)))
       }
 
-      // Wait for all updates to complete
+      // Wait for all
       await Promise.all(updatePromises)
-      console.log("Database updates completed")
+        .then(() => {
+          console.log("Database updates completed")
+        })
+        .catch((error) => {
+          console.error("Error updating goals in database:", error)
+        })
 
       // Only update the UI state after all database operations succeed
       setGoals((prevGoals) => {
@@ -849,7 +928,12 @@ export function GoalTracker() {
 
       // Wait for all updates to complete
       await Promise.all(updatePromises)
-      console.log("Database updates completed")
+        .then(() => {
+          console.log("Database updates completed")
+        })
+        .catch((error) => {
+          console.error("Error updating goals in database:", error)
+        })
 
       // Only update the UI state after all database operations succeed
       setGoals((prevGoals) => {
@@ -933,13 +1017,16 @@ export function GoalTracker() {
       </div>
 
       {/* Scrollable content area for goals */}
-      <div className="flex-grow overflow-y-auto pr-4">
+      <div className="flex-grow overflow-y-auto pr-4 pt-4">
         {activeTabGoals.length > 0 ? (
           <div className="space-y-4 sm:space-y-6 pb-6">
             {activeTabGoals.map((goal, index) => (
               <div
                 key={goal.id}
-                className="space-y-2 sm:space-y-3 p-3 sm:p-4 border rounded-lg border-border overflow-hidden"
+                className={cn(
+                  "space-y-2 sm:space-y-3 p-3 sm:p-4 border rounded-lg border-border overflow-hidden",
+                  isGoalCompleted(goal) && goal.frequency && "frequency-completed",
+                )}
                 ref={(el) => (goalRefs.current[goal.id] = el)}
               >
                 <div className="flex items-center gap-1 sm:gap-2">
@@ -991,24 +1078,34 @@ export function GoalTracker() {
                         </Button>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-1 goal-title-container">
-                        <h3
-                          className={cn(
-                            "font-medium truncate",
-                            "text-sm sm:text-base md:text-xl", // Smaller on mobile, larger on desktop
-                          )}
-                        >
-                          {goal.title}
-                        </h3>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 sm:h-8 sm:w-8 edit-title-button flex-shrink-0"
-                          onClick={() => startEditingTitle(goal.id, goal.title)}
-                          aria-label="Edit title"
-                        >
-                          <Edit className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                        </Button>
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-1 goal-title-container">
+                          <h3
+                            className={cn(
+                              "font-medium truncate",
+                              "text-sm sm:text-base md:text-xl", // Smaller on mobile, larger on desktop
+                            )}
+                          >
+                            {goal.title}
+                          </h3>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 sm:h-8 sm:w-8 edit-title-button flex-shrink-0"
+                            onClick={() => startEditingTitle(goal.id, goal.title)}
+                            aria-label="Edit title"
+                          >
+                            <Edit className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                          </Button>
+                        </div>
+
+                        {/* Display frequency if set */}
+                        {goal.frequency && (
+                          <div className="text-xs text-muted-foreground">
+                            {goal.frequency.count} time{goal.frequency.count !== 1 ? "s" : ""} per{" "}
+                            {goal.frequency.period}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -1071,6 +1168,7 @@ export function GoalTracker() {
                     progress={goal.progress}
                     color={goal.color}
                     notes={goal.notes}
+                    frequency={goal.frequency}
                     onDateClick={(date) => updateProgress(goal.id, date)}
                     onExtendEndDate={(date) => handleExtendEndDate(goal.id, date)}
                     onViewNotes={(date) => viewNotes(goal.id, date)}
@@ -1164,6 +1262,7 @@ export function GoalTracker() {
         color={celebrationColor}
         sourceRect={celebrationRect}
         onComplete={handleCelebrationComplete}
+        isFrequencyGoal={isFrequencyGoal}
       />
 
       {/* Achievement Popup */}
@@ -1171,6 +1270,8 @@ export function GoalTracker() {
         isVisible={achievementPopupVisible}
         goalTitle={achievedGoalTitle}
         onClose={() => setAchievementPopupVisible(false)}
+        isFrequencyGoal={isFrequencyGoal}
+        frequencyText={frequencyText}
       />
     </div>
   )

@@ -21,6 +21,21 @@ body {
     -ms-overflow-style: none; /* IE and Edge */
     scrollbar-width: none; /* Firefox */
   }
+
+  /* Add subtle pulse animation for frequency achievements */
+  .animate-pulse-subtle {
+    animation: pulse-subtle 2s infinite;
+  }
+}
+
+@keyframes pulse-subtle {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(250, 204, 21, 0);
+  }
 }
 
 @layer base {
@@ -153,4 +168,32 @@ body {
 
 .achievement-exit {
   animation: achievement-exit 0.5s ease-in forwards;
+}
+
+/* Adjust the trophy emoji positioning to make it fully visible */
+.frequency-completed {
+  position: relative;
+  overflow: visible !important;
+  padding-top: 12px; /* Add padding to the top to make room for the trophy */
+}
+
+.frequency-completed::after {
+  content: "🏆";
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  font-size: 16px;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.5));
+  z-index: 10;
+  animation: bounce 1s ease infinite;
+}
+
+@keyframes bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
 }

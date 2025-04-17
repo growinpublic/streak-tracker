@@ -12,6 +12,8 @@ import { format } from "date-fns"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 
 interface GoalFormProps {
   onSubmit: (goal: Omit<Goal, "id" | "progress" | "order" | "notes" | "tabId">) => void
@@ -36,16 +38,31 @@ export function GoalForm({ onSubmit, onCancel }: GoalFormProps) {
   const [endDate, setEndDate] = useState<Date>(new Date())
   const [color, setColor] = useState(COLORS[0])
 
+  // New state for frequency
+  const [useFrequency, setUseFrequency] = useState(false)
+  const [frequencyCount, setFrequencyCount] = useState(1)
+  const [frequencyPeriod, setFrequencyPeriod] = useState<"day" | "week" | "month">("week")
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!title || !startDate || !endDate) return
 
-    onSubmit({
+    const goal: Omit<Goal, "id" | "progress" | "order" | "notes" | "tabId"> = {
       title,
       startDate,
       endDate,
       color,
-    })
+    }
+
+    // Add frequency if enabled
+    if (useFrequency) {
+      goal.frequency = {
+        count: frequencyCount,
+        period: frequencyPeriod,
+      }
+    }
+
+    onSubmit(goal)
   }
 
   return (
@@ -108,6 +125,49 @@ export function GoalForm({ onSubmit, onCancel }: GoalFormProps) {
             </PopoverContent>
           </Popover>
         </div>
+      </div>
+
+      {/* Frequency settings */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <Label htmlFor="use-frequency" className="cursor-pointer">
+            Use Frequency
+          </Label>
+          <Switch id="use-frequency" checked={useFrequency} onCheckedChange={setUseFrequency} />
+        </div>
+
+        {useFrequency && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+            <div className="space-y-2">
+              <Label htmlFor="frequency-count">How many times</Label>
+              <Input
+                id="frequency-count"
+                type="number"
+                min={1}
+                max={31}
+                value={frequencyCount}
+                onChange={(e) => setFrequencyCount(Number.parseInt(e.target.value) || 1)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="frequency-period">Per</Label>
+              <Select
+                value={frequencyPeriod}
+                onValueChange={(value) => setFrequencyPeriod(value as "day" | "week" | "month")}
+              >
+                <SelectTrigger id="frequency-period">
+                  <SelectValue placeholder="Select period" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="day">Day</SelectItem>
+                  <SelectItem value="week">Week</SelectItem>
+                  <SelectItem value="month">Month</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="space-y-2">

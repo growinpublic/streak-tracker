@@ -25,14 +25,21 @@ interface GoalCelebrationProps {
   color: string
   sourceRect: DOMRect | null
   onComplete: () => void
+  isFrequencyGoal?: boolean
 }
 
-export function GoalCelebration({ isVisible, color, sourceRect, onComplete }: GoalCelebrationProps) {
+export function GoalCelebration({
+  isVisible,
+  color,
+  sourceRect,
+  onComplete,
+  isFrequencyGoal = false,
+}: GoalCelebrationProps) {
   const [particles, setParticles] = useState<Particle[]>([])
   const [mounted, setMounted] = useState(false)
   const animationRef = useRef<number | null>(null)
   const startTimeRef = useRef<number | null>(null)
-  const animationDuration = 2500 // 2.5 seconds
+  const animationDuration = isFrequencyGoal ? 3500 : 2500 // Longer animation for frequency goals
 
   // Create particles when the celebration becomes visible
   useEffect(() => {
@@ -41,7 +48,8 @@ export function GoalCelebration({ isVisible, color, sourceRect, onComplete }: Go
     if (isVisible && sourceRect) {
       // Create particles based on the source rectangle
       const newParticles: Particle[] = []
-      const particleCount = 75 // Number of particles to create
+      // More particles for frequency goals
+      const particleCount = isFrequencyGoal ? 120 : 75
 
       // Generate complementary colors
       const baseColor = color
@@ -61,7 +69,8 @@ export function GoalCelebration({ isVisible, color, sourceRect, onComplete }: Go
 
         // Random velocity (speed and direction)
         const angle = Math.random() * Math.PI * 2
-        const speed = 5 + Math.random() * 15
+        // Higher speed for frequency goals
+        const speed = 5 + Math.random() * (isFrequencyGoal ? 20 : 15)
 
         newParticles.push({
           id: i,
@@ -71,10 +80,10 @@ export function GoalCelebration({ isVisible, color, sourceRect, onComplete }: Go
           color: colors[Math.floor(Math.random() * colors.length)],
           velocity: {
             x: Math.cos(angle) * speed,
-            y: Math.sin(angle) * speed - 5, // Slight upward bias
+            y: Math.sin(angle) * speed - (isFrequencyGoal ? 7 : 5), // More upward bias for frequency goals
           },
           rotation: Math.random() * 360,
-          rotationSpeed: (Math.random() - 0.5) * 15,
+          rotationSpeed: (Math.random() - 0.5) * (isFrequencyGoal ? 20 : 15), // Faster rotation for frequency goals
           opacity: 1,
           shape: shapes[Math.floor(Math.random() * shapes.length)],
         })
@@ -95,7 +104,7 @@ export function GoalCelebration({ isVisible, color, sourceRect, onComplete }: Go
         animationRef.current = null
       }
     }
-  }, [isVisible, color, sourceRect])
+  }, [isVisible, color, sourceRect, isFrequencyGoal])
 
   // Animation function
   const animateParticles = () => {

@@ -2,16 +2,24 @@
 
 import { useEffect, useState } from "react"
 import { createPortal } from "react-dom"
-import { CheckCircle } from "lucide-react"
+import { CheckCircle, Award } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface AchievementPopupProps {
   isVisible: boolean
   goalTitle: string
   onClose: () => void
+  isFrequencyGoal?: boolean
+  frequencyText?: string
 }
 
-export function AchievementPopup({ isVisible, goalTitle, onClose }: AchievementPopupProps) {
+export function AchievementPopup({
+  isVisible,
+  goalTitle,
+  onClose,
+  isFrequencyGoal = false,
+  frequencyText = "",
+}: AchievementPopupProps) {
   const [mounted, setMounted] = useState(false)
   const [animation, setAnimation] = useState<"enter" | "exit" | null>(null)
 
@@ -53,13 +61,24 @@ export function AchievementPopup({ isVisible, goalTitle, onClose }: AchievementP
         !isVisible && "hidden",
       )}
     >
-      <div className="bg-background border border-border rounded-lg shadow-lg p-4 flex items-center gap-3 max-w-md">
-        <div className="flex-shrink-0 text-green-500 dark:text-green-400">
-          <CheckCircle className="h-8 w-8" />
+      <div
+        className={cn(
+          "bg-background border border-border rounded-lg shadow-lg p-4 flex items-center gap-3 max-w-md",
+          isFrequencyGoal && "animate-pulse-subtle",
+        )}
+      >
+        <div
+          className={cn(
+            "flex-shrink-0",
+            isFrequencyGoal ? "text-yellow-500 dark:text-yellow-400" : "text-green-500 dark:text-green-400",
+          )}
+        >
+          {isFrequencyGoal ? <Award className="h-8 w-8" /> : <CheckCircle className="h-8 w-8" />}
         </div>
         <div className="flex-1">
-          <h3 className="font-bold text-lg">Goal Achieved!</h3>
+          <h3 className="font-bold text-lg">{isFrequencyGoal ? "Frequency Goal Achieved!" : "Goal Achieved!"}</h3>
           <p className="text-muted-foreground">{goalTitle}</p>
+          {isFrequencyGoal && frequencyText && <p className="text-xs mt-1 text-muted-foreground">{frequencyText}</p>}
         </div>
       </div>
     </div>,

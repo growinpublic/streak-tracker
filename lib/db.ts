@@ -11,6 +11,10 @@ export interface GoalRecord {
   order: number // Add this field for sorting
   notes: Record<string, string> // Add notes field - maps date strings to note content
   tabId: string // Add tabId field to associate goals with tabs
+  frequency?: {
+    count: number // How many times
+    period: "day" | "week" | "month" // Per what period
+  }
 }
 
 // Define the Tab interface for the database
@@ -85,6 +89,16 @@ class StreakDatabase extends Dexie {
           .modify((goal) => {
             goal.tabId = defaultTabId
           })
+      })
+
+    // Upgrade to version 5 - add frequency
+    this.version(5)
+      .stores({
+        goals: "id, title, startDate, endDate, order, tabId", // Schema remains the same
+      })
+      .upgrade((tx) => {
+        // No need to modify existing goals, frequency will be undefined for them
+        console.log("Upgraded database to version 5 - added frequency support")
       })
   }
 }

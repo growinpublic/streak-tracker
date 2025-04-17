@@ -28,6 +28,10 @@ interface StreakBarProps {
   onDateClick: (date: string) => void
   onExtendEndDate?: (date: string) => void // New prop for extending end date
   onViewNotes?: (date: string) => void // New prop for viewing notes
+  frequency?: {
+    count: number // How many times
+    period: "day" | "week" | "month" // Per what period
+  }
 }
 
 // Days of week for labels
@@ -45,6 +49,7 @@ export function StreakBar({
   onDateClick,
   onExtendEndDate,
   onViewNotes,
+  frequency,
 }: StreakBarProps) {
   // Get the current year for initial state
   const today = new Date()
@@ -418,8 +423,46 @@ export function StreakBar({
       return isWithinInterval(date, { start, end })
     })
 
-    // Calculate percentage
+    // If using frequency, calculate based on required completions
+    if (frequency) {
+      const { count, period } = frequency
+      let requiredCompletions = 0
+
+      if (period === "day") {
+        // Daily frequency - count * total days
+        requiredCompletions = count * totalDays
+      } else if (period === "week") {
+        // Weekly frequency - use exact number of weeks
+        const exactWeeks = totalDays / 7
+        requiredCompletions = Math.round(count * exactWeeks)
+      } else if (period === "month") {
+        // Monthly frequency - use exact number of months
+        const exactMonths = totalDays / 30
+        requiredCompletions = Math.round(count * exactMonths)
+      }
+
+      // Calculate percentage based on required completions
+      return Math.min(100, Math.round((validProgressDates.length / requiredCompletions) * 100))
+    }
+
+    // Standard calculation for daily goals
     return Math.min(100, Math.round((validProgressDates.length / totalDays) * 100))
+  }
+
+  const countValidProgressDays = () => {
+    // Normalize dates for comparison
+    const start = new Date(startDate)
+    start.setHours(0, 0, 0, 0)
+
+    const end = new Date(endDate)
+    end.setHours(0, 0, 0, 0)
+
+    // Count only progress dates that are within the goal range
+    return progress.filter((dateStr) => {
+      const date = new Date(dateStr)
+      date.setHours(0, 0, 0, 0)
+      return isWithinInterval(date, { start, end })
+    }).length
   }
 
   const todayPosition = findTodayPosition()
@@ -447,21 +490,53 @@ export function StreakBar({
     }
   }
 
-  // Count valid progress days (only those within the goal range)
-  const countValidProgressDays = () => {
-    // Normalize dates for comparison
-    const start = new Date(startDate)
-    start.setHours(0, 0, 0, 0)
+  // Add a function to calculate required completions
+  const calculateRequiredCompletions = () => {
+    if (!frequency) return differenceInDays(new Date(endDate), new Date(startDate)) + 1
 
-    const end = new Date(endDate)
-    end.setHours(0, 0, 0, 0)
+    const { count, period } = frequency
+    const totalDays = differenceInDays(new Date(endDate), new Date(startDate)) + 1
 
-    // Count only progress dates that are within the goal range
-    return progress.filter((dateStr) => {
-      const date = new Date(dateStr)
-      date.setHours(0, 0, 0, 0)
-      return isWithinInterval(date, { start, end })
-    }).length
+    if (period === "day") {
+      return count * totalDays
+    } else if (period === "week") {
+      // More accurate calculation for weeks - use exact number of weeks
+      const exactWeeks = totalDays / 7
+      return Math.round(count * exactWeeks)
+    } else if (period === "month") {
+      // More accurate calculation for months
+      const exactMonths = totalDays / 30
+      return Math.round(count * exactMonths)
+    }
+
+    return totalDays // Fallback
+  }
+
+  // Add this new function to format the frequency requirement
+  const formatFrequencyRequirement = () => {
+    if (!frequency) return null
+
+    const { count, period } = frequency
+    const totalDays = differenceInDays(new Date(endDate), new Date(startDate)) + 1
+    const completedCount = countValidProgressDays()
+
+    let requiredCompletions = 0
+    let periodText = ""
+
+    if (period === "day") {
+      requiredCompletions = count * totalDays
+      periodText = "day"
+    } else if (period === "week") {
+      const exactWeeks = totalDays / 7
+      requiredCompletions = Math.round(count * exactWeeks)
+      periodText = `${Math.round(exactWeeks * 10) / 10} week${exactWeeks !== 1 ? "s" : ""}`
+    } else if (period === "month") {
+      const exactMonths = totalDays / 30
+      requiredCompletions = Math.round(count * exactMonths)
+      periodText = `${Math.round(exactMonths * 10) / 10} month${exactMonths !== 1 ? "s" : ""}`
+    }
+
+    return `${completedCount}/${requiredCompletions} (${count} per ${period})`
   }
 
   // Check if the goal spans multiple years
@@ -735,7 +810,15 @@ export function StreakBar({
 
         <div className="flex flex-row justify-between items-center gap-2">
           <div className="text-xs sm:text-sm">
-            {countValidProgressDays()} of {totalDays} days completed
+            {frequency ? (
+              <>
+                <span className="font-medium">{formatFrequencyRequirement()}</span>
+              </>
+            ) : (
+              <>
+                {countValidProgressDays()} of {totalDays} days completed
+              </>
+            )}
           </div>
           <div className="text-xs sm:text-sm font-medium">{calculateCompletion()}% complete</div>
         </div>
