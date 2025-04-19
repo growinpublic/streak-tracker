@@ -64,7 +64,7 @@ export interface Goal {
 }
 
 // Also update the recordToGoal function to handle frequency
-function recordToGoal(record: GoalRecord): Goal {
+export function recordToGoal(record: GoalRecord): Goal {
   return {
     ...record,
     startDate: new Date(record.startDate),
@@ -986,25 +986,65 @@ export function GoalTracker() {
         )}
 
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3 sm:mb-4">
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={() => setShowForm(!showForm)} variant={showForm ? "secondary" : "default"} size="sm">
-              <PlusCircle className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">{showForm ? "Cancel" : "Add New Goal"}</span>
-            </Button>
-            <Button variant="outline" size="sm" onClick={collapseAll} title="Collapse all goals">
-              <ChevronsUp className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">Collapse All</span>
-            </Button>
-            <Button variant="outline" size="sm" onClick={expandAll} title="Expand all goals">
-              <ChevronsDown className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">Expand All</span>
-            </Button>
-            <Separator orientation="vertical" className="h-8 hidden sm:block" />
-            <ImportExport onImportComplete={loadData} />
-            <Button variant="outline" size="sm" onClick={shareGoalSummary} title="Share summary">
-              <Share2 className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">Share</span>
-            </Button>
+          <div className="relative w-full sm:w-auto">
+            {/* Swipeable button container */}
+            <div
+              className="flex gap-2 overflow-x-auto scrollbar-hide pb-2 sm:pb-0 snap-x snap-mandatory swipe-hint sm:swipe-hint-none"
+              style={{
+                WebkitOverflowScrolling: "touch",
+                scrollbarWidth: "none",
+                msOverflowStyle: "none",
+              }}
+            >
+              <div className="flex gap-2 min-w-max">
+                <Button
+                  onClick={() => setShowForm(!showForm)}
+                  variant={showForm ? "secondary" : "default"}
+                  size="sm"
+                  className="snap-start whitespace-nowrap"
+                >
+                  <PlusCircle className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">{showForm ? "Cancel" : "Add New Goal"}</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={collapseAll}
+                  title="Collapse all goals"
+                  className="snap-start whitespace-nowrap"
+                >
+                  <ChevronsUp className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Collapse All</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={expandAll}
+                  title="Expand all goals"
+                  className="snap-start whitespace-nowrap"
+                >
+                  <ChevronsDown className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Expand All</span>
+                </Button>
+                <Separator orientation="vertical" className="h-8 hidden sm:block" />
+                <div className="snap-start">
+                  <ImportExport onImportComplete={loadData} />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={shareGoalSummary}
+                  title="Share summary"
+                  className="snap-start whitespace-nowrap"
+                >
+                  <Share2 className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Share</span>
+                </Button>
+              </div>
+            </div>
+
+            {/* Scroll indicator for mobile */}
+            <div className="absolute -bottom-1 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary/20 to-transparent sm:hidden"></div>
           </div>
         </div>
 

@@ -26,6 +26,79 @@ body {
   .animate-pulse-subtle {
     animation: pulse-subtle 2s infinite;
   }
+
+  /* Add a subtle animation to hint at swipeable content */
+  .swipe-hint {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .swipe-hint::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 20px;
+    height: 100%;
+    background: linear-gradient(to right, transparent, rgba(var(--primary), 0.1));
+    animation: pulse 2s infinite;
+  }
+
+  /* Add this to the existing utilities */
+  .sm\:swipe-hint-none::after {
+    @media (min-width: 640px) {
+      display: none;
+    }
+  }
+
+  @keyframes pulse {
+    0%,
+    100% {
+      opacity: 0.2;
+    }
+    50% {
+      opacity: 0.8;
+    }
+  }
+
+  /* Enhanced mobile scrolling */
+  .touch-scroll {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+    scroll-snap-type: x mandatory;
+  }
+
+  /* Improve the swipe hint animation */
+  .swipe-hint::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 30px;
+    height: 100%;
+    background: linear-gradient(
+      to right,
+      transparent,
+      rgba(var(--foreground-rgb), 0.05) 50%,
+      rgba(var(--foreground-rgb), 0.1)
+    );
+    animation: pulse-hint 2s infinite;
+  }
+
+  @keyframes pulse-hint {
+    0%,
+    100% {
+      opacity: 0.3;
+    }
+    50% {
+      opacity: 0.7;
+    }
+  }
+
+  /* Add this utility for better text wrapping in dialogs */
+  .overflow-wrap-anywhere {
+    overflow-wrap: anywhere;
+  }
 }
 
 @keyframes pulse-subtle {

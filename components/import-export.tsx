@@ -175,12 +175,18 @@ export function ImportExport({ onImportComplete }: { onImportComplete: () => voi
 
   return (
     <>
-      <div className="flex gap-2">
-        <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
+      <div className="flex gap-2 overflow-x-auto scrollbar-hide min-w-max touch-scroll">
+        <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting} className="whitespace-nowrap">
           <Download className="h-4 w-4 sm:mr-2" />
           <span className="hidden sm:inline">{exporting ? "Exporting..." : "Export CSV"}</span>
         </Button>
-        <Button variant="outline" size="sm" onClick={handleImportClick} disabled={importing}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleImportClick}
+          disabled={importing}
+          className="whitespace-nowrap"
+        >
           <Upload className="h-4 w-4 sm:mr-2" />
           <span className="hidden sm:inline">{importing ? "Importing..." : "Import CSV"}</span>
         </Button>

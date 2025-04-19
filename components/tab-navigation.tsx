@@ -81,7 +81,15 @@ export function TabNavigation({
   return (
     <>
       <div className="mb-6 border border-border rounded-t-lg overflow-hidden">
-        <div className="bg-muted/30 flex items-center overflow-x-auto scrollbar-hide" ref={scrollContainerRef}>
+        <div
+          className="bg-muted/30 flex items-center overflow-x-auto scrollbar-hide touch-scroll"
+          ref={scrollContainerRef}
+          style={{
+            WebkitOverflowScrolling: "touch",
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
+          }}
+        >
           <div className="flex space-x-0 w-full h-full items-center">
             {tabs.map((tab) => (
               <div
@@ -124,7 +132,7 @@ export function TabNavigation({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-full px-2 py-1 rounded-sm"
+                className="h-full px-2 py-1 rounded-sm whitespace-nowrap"
                 onClick={onAddTab}
                 aria-label="Add new tab"
               >
