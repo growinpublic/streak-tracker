@@ -14,7 +14,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { getAllGoals, addGoal, deleteGoal, type GoalRecord } from "@/lib/db"
+import { getAllGoals, db, type GoalRecord } from "@/lib/db"
 import Papa from "papaparse" // Import PapaParse as a default import
 
 export function ImportExport({ onImportComplete }: { onImportComplete: () => void }) {
@@ -46,6 +46,8 @@ export function ImportExport({ onImportComplete }: { onImportComplete: () => voi
           progress: streak.progress.join("|"), // Join progress dates with a pipe character
           order: streak.order || 0, // Include order in export
           notes: notesJson, // Add notes as JSON string
+          tabId: streak.tabId || "", // Include tabId
+          frequency: streak.frequency ? JSON.stringify(streak.frequency) : "", // Include frequency
         }
       })
 
@@ -117,6 +119,16 @@ export function ImportExport({ onImportComplete }: { onImportComplete: () => voi
               console.warn("Failed to parse notes for row:", row.id)
             }
 
+            // Parse frequency if it exists
+            let frequency = undefined
+            try {
+              if (row.frequency) {
+                frequency = JSON.parse(row.frequency)
+              }
+            } catch (e) {
+              console.warn("Failed to parse frequency for row:", row.id)
+            }
+
             return {
               id: row.id,
               title: row.title,
@@ -126,19 +138,37 @@ export function ImportExport({ onImportComplete }: { onImportComplete: () => voi
               progress: row.progress ? row.progress.split("|").filter(Boolean) : [],
               order: row.order !== undefined ? Number(row.order) : index, // Use provided order or index
               notes: notes, // Add parsed notes
+              tabId: row.tabId || "", // Use tabId if available
+              frequency: frequency, // Add parsed frequency
             }
           })
 
-          // Clear existing data
-          const existingStreaks = await getAllGoals()
-          for (const streak of existingStreaks) {
-            await deleteGoal(streak.id)
-          }
+          // Use a transaction to clear and add data
+          await db.transaction("rw", db.goals, async () => {
+            // Clear existing data
+            await db.goals.clear()
+            console.log("Cleared existing goals")
 
-          // Import new data
-          for (const streak of streaks) {
-            await addGoal(streak)
-          }
+            // Import new data one by one
+            let successCount = 0
+            let errorCount = 0
+
+            for (const streak of streaks) {
+              try {
+                await db.goals.put(streak)
+                successCount++
+              } catch (error) {
+                console.error(`Failed to import goal ${streak.id}:`, error)
+                errorCount++
+              }
+            }
+
+            console.log(`Imported ${successCount} goals, ${errorCount} failed`)
+
+            if (errorCount > 0) {
+              throw new Error(`Failed to import ${errorCount} goals`)
+            }
+          })
 
           setImportStatus({
             success: true,
