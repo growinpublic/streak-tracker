@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { useAuth } from "@/lib/supabase/auth-provider"
 import { getSupabaseDB } from "@/lib/supabase/database"
-import { getAllGoals, getAllTabs, addGoal, addTab, clearAllGoals, deleteTab } from "@/lib/db"
+import { getAllGoals, getAllTabs, addGoal, addTab, clearAllGoals, deleteTab, db } from "@/lib/db"
 import { recordToGoal } from "@/components/goal-tracker"
 import { Cloud, CloudOff, Download, Upload, Loader2 } from "lucide-react"
 import {
@@ -151,70 +151,86 @@ export function SyncButton({ isMenuItem = false }: { isMenuItem?: boolean }) {
         // Set a flag to refresh the page after the user closes the dialog
         setNeedsRefresh(true)
       } else if (direction === "merge") {
-        // Merge local and remote data (mostly unchanged)
-        const localGoals = await getAllGoals()
-        const localTabs = await getAllTabs()
-        const { goals: remoteGoals, tabs: remoteTabs } = await supabaseDB.syncSupabaseToLocal()
+        // COMPLETELY REWRITTEN MERGE FUNCTIONALITY
+        try {
+          // Get local and remote data
+          const localGoals = await getAllGoals()
+          const localTabs = await getAllTabs()
+          const { goals: remoteGoals, tabs: remoteTabs } = await supabaseDB.syncSupabaseToLocal()
 
-        // Create maps for faster lookups
-        const localGoalMap = new Map(localGoals.map((g) => [g.id, g]))
-        const localTabMap = new Map(localTabs.map((t) => [t.id, t]))
-        const remoteGoalMap = new Map(remoteGoals.map((g) => [g.id, g]))
-        const remoteTabMap = new Map(remoteTabs.map((t) => [t.id, t]))
+          // Create maps for faster lookups
+          const localGoalMap = new Map(localGoals.map((g) => [g.id, g]))
+          const localTabMap = new Map(localTabs.map((t) => [t.id, t]))
+          const remoteGoalMap = new Map(remoteGoals.map((g) => [g.id, g]))
+          const remoteTabMap = new Map(remoteTabs.map((t) => [t.id, t]))
 
-        // Merge tabs
-        const mergedTabs = [...localTabs]
-        for (const remoteTab of remoteTabs) {
-          if (!localTabMap.has(remoteTab.id)) {
-            mergedTabs.push(remoteTab)
-          }
-        }
+          // Use a transaction for atomicity
+          await db.transaction("rw", [db.goals, db.tabs], async () => {
+            console.log("Starting merge transaction")
 
-        // Clear existing tabs and add merged tabs
-        for (const tab of localTabs) {
-          await deleteTab(tab.id)
-        }
-        for (const tab of mergedTabs) {
-          await addTab(tab)
-        }
-
-        // Merge goals
-        const mergedGoals = [...localGoals]
-        for (const remoteGoal of remoteGoals) {
-          if (!localGoalMap.has(remoteGoal.id)) {
-            // Convert Goal to GoalRecord
-            const goalRecord = {
-              id: remoteGoal.id,
-              title: remoteGoal.title,
-              startDate: remoteGoal.startDate.toISOString(),
-              endDate: remoteGoal.endDate.toISOString(),
-              progress: remoteGoal.progress,
-              color: remoteGoal.color,
-              order: remoteGoal.order,
-              notes: remoteGoal.notes,
-              tabId: remoteGoal.tabId,
-              frequency: remoteGoal.frequency,
+            // Process tabs first
+            console.log("Processing tabs...")
+            for (const remoteTab of remoteTabs) {
+              if (!localTabMap.has(remoteTab.id)) {
+                // New tab from remote, add it
+                console.log(`Adding new remote tab: ${remoteTab.id}`)
+                await db.tabs.add({
+                  id: remoteTab.id,
+                  name: remoteTab.name,
+                  order: remoteTab.order,
+                })
+              }
             }
-            mergedGoals.push(goalRecord)
-          }
+
+            // Process goals
+            console.log("Processing goals...")
+            for (const remoteGoal of remoteGoals) {
+              // Convert Goal to GoalRecord
+              const goalRecord = {
+                id: remoteGoal.id,
+                title: remoteGoal.title,
+                startDate: remoteGoal.startDate.toISOString(),
+                endDate: remoteGoal.endDate.toISOString(),
+                progress: remoteGoal.progress,
+                color: remoteGoal.color,
+                order: remoteGoal.order,
+                notes: remoteGoal.notes,
+                tabId: remoteGoal.tabId,
+                frequency: remoteGoal.frequency,
+              }
+
+              // Check if this goal exists locally
+              const existingGoal = await db.goals.get(remoteGoal.id)
+
+              if (!existingGoal) {
+                // New goal from remote, add it
+                console.log(`Adding new remote goal: ${remoteGoal.id}`)
+                await db.goals.add(goalRecord)
+              }
+              // We don't update existing goals in a merge - we keep both versions
+            }
+
+            console.log("Merge transaction completed successfully")
+          })
+
+          // Get the updated counts after the merge
+          const updatedGoals = await getAllGoals()
+          const updatedTabs = await getAllTabs()
+
+          // Sync the merged data back to Supabase
+          await supabaseDB.syncLocalToSupabase(updatedGoals.map(recordToGoal), updatedTabs)
+
+          setSyncStatus({
+            success: true,
+            message: `Successfully merged data. You now have ${updatedGoals.length} goals and ${updatedTabs.length} tabs.`,
+          })
+
+          // Set a flag to refresh the page after the user closes the dialog
+          setNeedsRefresh(true)
+        } catch (error) {
+          console.error("Transaction error during merge:", error)
+          throw error
         }
-
-        // Clear existing goals and add merged goals
-        await clearAllGoals()
-        for (const goal of mergedGoals) {
-          await addGoal(goal)
-        }
-
-        // Sync merged data back to Supabase
-        await supabaseDB.syncLocalToSupabase(mergedGoals.map(recordToGoal), mergedTabs)
-
-        setSyncStatus({
-          success: true,
-          message: `Successfully merged ${mergedGoals.length} goals and ${mergedTabs.length} tabs`,
-        })
-
-        // Set a flag to refresh the page after the user closes the dialog
-        setNeedsRefresh(true)
       }
     } catch (error) {
       console.error("Sync error:", error)
