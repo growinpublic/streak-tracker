@@ -652,7 +652,6 @@ export function GoalTracker() {
       [goalId]: !prev[goalId],
     }))
   }
-
   // Function to collapse all goals
   const collapseAll = () => {
     const allCollapsed: Record<string, boolean> = {}
@@ -985,7 +984,7 @@ export function GoalTracker() {
   return (
     <div className="flex flex-col h-[calc(100vh-120px)] max-w-[1200px] mx-auto w-full">
       {/* Fixed header section with tabs and controls */}
-      <div className="flex-none">
+      <div className="flex-none w-full">
         {/* Tab Navigation - now at the very top */}
         {tabs.length > 0 && (
           <TabNavigation
@@ -1067,14 +1066,14 @@ export function GoalTracker() {
 
         {/* Goal form now appears at the top */}
         {showForm && (
-          <div className="mb-3 sm:mb-4">
+          <div className="mb-3 sm:mb-4 w-full">
             <GoalForm onSubmit={addGoal} onCancel={() => setShowForm(false)} />
           </div>
         )}
       </div>
 
       {/* Scrollable content area for goals */}
-      <div className="flex-grow overflow-y-auto pr-4 pt-4">
+      <div className="flex-grow overflow-y-auto pt-4 w-full">
         {activeTabGoals.length > 0 ? (
           <div className="space-y-4 sm:space-y-6 pb-6">
             {activeTabGoals.map((goal, index) => (
