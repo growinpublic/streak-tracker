@@ -117,6 +117,14 @@ class StreakDatabase extends Dexie {
           })
       })
   }
+
+  // Add a method to delete the entire database
+  async delete(): Promise<void> {
+    await this.transaction("rw", this.goals, this.tabs, async () => {
+      await this.goals.clear()
+      await this.tabs.clear()
+    })
+  }
 }
 
 // Create and export a database instance
@@ -225,4 +233,9 @@ export async function deleteTabAndMoveGoals(tabId: string, targetTabId: string):
     // Delete the tab
     await db.tabs.delete(tabId)
   })
+}
+
+// Add a function to delete the entire database
+export async function deleteDatabase(): Promise<void> {
+  await db.delete()
 }

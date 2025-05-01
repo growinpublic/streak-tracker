@@ -60,7 +60,6 @@
     "zod": "^3.24.1",
     "@supabase/supabase-js": "latest",
     "@supabase/auth-helpers-nextjs": "latest",
-    "papaparse": "latest",
     "dexie": "latest"
   },
   "devDependencies": {

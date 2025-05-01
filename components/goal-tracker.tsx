@@ -6,19 +6,7 @@ import { useState, useEffect, useRef } from "react"
 import { GoalForm } from "./goal-form"
 import { StreakBar } from "./streak-bar"
 import { Button } from "@/components/ui/button"
-import {
-  PlusCircle,
-  Trash2,
-  XCircle,
-  CheckCircle,
-  ChevronRight,
-  Edit,
-  Save,
-  X,
-  ChevronsUp,
-  ChevronsDown,
-  Share2,
-} from "lucide-react"
+import { PlusCircle, Edit, Save, X, ChevronsUp, ChevronsDown, Share2, Globe } from "lucide-react"
 import {
   type GoalRecord,
   type TabRecord,
@@ -46,24 +34,24 @@ import { AchievementPopup } from "./achievement-popup"
 import { TabNavigation } from "./tab-navigation"
 import { GoalReorderButtons } from "./goal-reorder-buttons"
 import { cn } from "@/lib/utils"
-
+import type { Goal } from "@/lib/db"
 // Update the Goal interface to include sharable
-export interface Goal {
-  id: string
-  title: string
-  startDate: Date
-  endDate: Date
-  progress: string[] // Array of dates marked as completed (ISO strings)
-  color: string
-  order: number
-  notes: Record<string, string> // Map of date strings to notes
-  tabId: string // Tab this goal belongs to
-  frequency?: {
-    count: number // How many times
-    period: "day" | "week" | "month" // Per what period
-  }
-  sharable?: boolean // New field to control if goal is included in shares
-}
+// export interface Goal {
+//   id: string
+//   title: string
+//   startDate: Date
+//   endDate: Date
+//   progress: string[] // Array of dates marked as completed (ISO strings)
+//   color: string
+//   order: number
+//   notes: Record<string, string> // Map of date strings to notes
+//   tabId: string // Tab this goal belongs to
+//   frequency?: {
+//     count: number // How many times
+//     period: "day" | "week" | "month" // Per what period
+//   }
+//   sharable?: boolean // New field to control if goal is included in shares
+// }
 
 // Also update the recordToGoal function to handle sharable
 export function recordToGoal(record: GoalRecord): Goal {
@@ -75,7 +63,7 @@ export function recordToGoal(record: GoalRecord): Goal {
     notes: record.notes || {}, // Default to empty object if notes is not set
     tabId: record.tabId || "", // Default to empty string if tabId is not set
     frequency: record.frequency || undefined, // Add frequency field
-    sharable: record.sharable !== undefined ? record.sharable : true, // Default to true if not set
+    sharable: record.sharable !== undefined ? record.sharable : false, // Default to false (private) if not set
   }
 }
 
@@ -89,7 +77,7 @@ function goalToRecord(goal: Goal): GoalRecord {
     notes: goal.notes || {}, // Default to empty object if notes is not set
     tabId: goal.tabId || "", // Default to empty string if tabId is not set
     frequency: goal.frequency || undefined, // Add frequency field
-    sharable: goal.sharable !== undefined ? goal.sharable : true, // Default to true if not set
+    sharable: goal.sharable !== undefined ? goal.sharable : false, // Default to false (private) if not set
   }
 }
 
@@ -126,6 +114,9 @@ export function GoalTracker() {
   // State for tab deletion confirmation
   const [deleteTabDialogOpen, setDeleteTabDialogOpen] = useState(false)
   const [deleteTabInfo, setDeleteTabInfo] = useState<{ tabId: string; tabName: string } | null>(null)
+
+  // State for delete all confirmation
+  const [deleteAllDialogOpen, setDeleteAllDialogOpen] = useState(false)
 
   // State for celebration animation
   const [celebrationVisible, setCelebrationVisible] = useState(false)
@@ -327,7 +318,7 @@ export function GoalTracker() {
         order: newOrder,
         notes: {}, // Initialize with empty notes
         tabId: activeTabId, // Automatically assign to active tab
-        sharable: true, // Default to true
+        sharable: false, // Default to false (private)
       }
 
       await dbAddGoal(goalToRecord(newGoal))
@@ -756,7 +747,7 @@ export function GoalTracker() {
     const formattedDate = format(today, "MMMM d, yyyy")
 
     // Start with header
-    let text = `📊 Streak - ${formattedDate}\n\n`
+    let text = `📊 Streaktracker - ${formattedDate}\n\n`
 
     // Use provided goals or filter all goals by sharable flag
     const sharableGoals = goalsToShare || goals.filter((goal) => goal.sharable !== false)
@@ -920,7 +911,7 @@ export function GoalTracker() {
       // Reassign all orders sequentially to avoid any order conflicts
       const updatedGoals = newOrder.map((goal, index) => ({
         ...goal,
-        order: index * 10, // Use multiples of 10 to leave room between values
+        order: index * 10, // Use multiples of 10 to leave room between
       }))
 
       console.log("New goal order:", updatedGoals.map((g) => `${g.title}: ${g.order}`).join(", "))
@@ -931,7 +922,7 @@ export function GoalTracker() {
         updatePromises.push(dbUpdateGoal(goalToRecord(goal)))
       }
 
-      // Wait for all updates to complete
+      // Wait for all
       await Promise.all(updatePromises)
         .then(() => {
           console.log("Database updates completed")
@@ -961,380 +952,206 @@ export function GoalTracker() {
     }
   }
 
-  // Get goals for the active tab
-  const activeTabGoals = goals.filter((goal) => goal.tabId === activeTabId)
-
-  // Sort goals by order
-  activeTabGoals.sort((a, b) => a.order - b.order)
-
-  if (loading) {
-    return <LoadingSpinner />
-  }
-
-  const shareToTwitter = () => {
-    const twitterURL = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`
-    window.open(twitterURL, "_blank")
-  }
-
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(shareText)
-    alert("Copied to clipboard!")
-  }
-
   return (
-    <div className="flex flex-col h-[calc(100vh-120px)] max-w-[1200px] mx-auto w-full">
-      {/* Fixed header section with tabs and controls */}
-      <div className="flex-none w-full">
-        {/* Tab Navigation - now at the very top */}
-        {tabs.length > 0 && (
-          <TabNavigation
-            tabs={tabs}
-            activeTabId={activeTabId}
-            onTabChange={setActiveTabId}
-            onAddTab={addTab}
-            onDeleteTab={confirmDeleteTab}
-            onTabRename={(tabId, newName) => {
-              // Update the tabs in the local state
-              setTabs((prevTabs) => prevTabs.map((tab) => (tab.id === tabId ? { ...tab, name: newName } : tab)))
-            }}
-          />
-        )}
+    <>
+      <TabNavigation
+        tabs={tabs}
+        activeTabId={activeTabId}
+        setActiveTabId={setActiveTabId}
+        addTab={addTab}
+        updateTabName={updateTabName}
+        confirmDeleteTab={confirmDeleteTab}
+      />
 
-        {/* Menu buttons container with consistent containment */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3 sm:mb-4 w-full">
-          <div className="relative w-full">
-            {/* Swipeable button container */}
-            <div
-              className="flex gap-2 overflow-x-auto scrollbar-hide pb-2 sm:pb-0 snap-x snap-mandatory swipe-hint sm:swipe-hint-none w-full"
-              style={{
-                WebkitOverflowScrolling: "touch",
-                scrollbarWidth: "none",
-                msOverflowStyle: "none",
-              }}
-            >
-              <div className="flex gap-2 min-w-max">
-                <Button
-                  onClick={() => setShowForm(!showForm)}
-                  variant={showForm ? "secondary" : "default"}
-                  size="sm"
-                  className="snap-start whitespace-nowrap"
-                >
-                  <PlusCircle className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">{showForm ? "Cancel" : "Add New Goal"}</span>
+      <div className="container relative pb-10">
+        {loading ? (
+          <div className="flex justify-center items-center h-48">
+            <LoadingSpinner />
+          </div>
+        ) : (
+          <>
+            {/* Collapsible controls */}
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex space-x-2">
+                <Button variant="outline" size="sm" onClick={collapseAll}>
+                  <ChevronsUp className="mr-2 h-4 w-4" />
+                  Collapse All
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={collapseAll}
-                  title="Collapse all goals"
-                  className="snap-start whitespace-nowrap"
-                >
-                  <ChevronsUp className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Collapse All</span>
+                <Button variant="outline" size="sm" onClick={expandAll}>
+                  <ChevronsDown className="mr-2 h-4 w-4" />
+                  Expand All
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={expandAll}
-                  title="Expand all goals"
-                  className="snap-start whitespace-nowrap"
-                >
-                  <ChevronsDown className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Expand All</span>
+              </div>
+
+              <div className="flex space-x-2">
+                <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
+                  <Share2 className="mr-2 h-4 w-4" />
+                  Share
                 </Button>
-                <Separator orientation="vertical" className="h-8 hidden sm:block" />
-                <div className="snap-start">
-                  <ImportExport onImportComplete={loadData} />
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => shareGoalSummary()}
-                  title="Share all goals"
-                  className="snap-start whitespace-nowrap"
-                >
-                  <Share2 className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Share All</span>
+                <ImportExport goals={goals} setGoals={setGoals} />
+                <Button onClick={() => setShowForm(true)}>
+                  <PlusCircle className="mr-2 h-4 w-4" />
+                  Add Goal
                 </Button>
               </div>
             </div>
 
-            {/* Scroll indicator for mobile */}
-            <div className="absolute -bottom-1 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary/20 to-transparent sm:hidden"></div>
-          </div>
-        </div>
-
-        {/* Goal form now appears at the top */}
-        {showForm && (
-          <div className="mb-3 sm:mb-4 w-full">
-            <GoalForm onSubmit={addGoal} onCancel={() => setShowForm(false)} />
-          </div>
-        )}
-      </div>
-
-      {/* Scrollable content area for goals */}
-      <div className="flex-grow overflow-y-auto pt-4 w-full">
-        {activeTabGoals.length > 0 ? (
-          <div className="space-y-4 sm:space-y-6 pb-6">
-            {activeTabGoals.map((goal, index) => (
-              <div
-                key={goal.id}
-                className={cn(
-                  "space-y-2 sm:space-y-3 p-3 sm:p-4 border rounded-lg border-border overflow-hidden",
-                  isGoalCompleted(goal) && goal.frequency && "frequency-completed",
-                )}
-                ref={(el) => (goalRefs.current[goal.id] = el)}
-              >
-                <div className="flex items-center gap-1 sm:gap-2">
-                  {/* Collapse button */}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0"
-                    onClick={() => toggleCollapse(goal.id)}
-                    aria-label={collapsedGoals[goal.id] ? "Expand goal" : "Collapse goal"}
-                  >
-                    <ChevronRight
-                      className={`h-3 w-3 sm:h-4 sm:w-4 transition-transform ${collapsedGoals[goal.id] ? "" : "rotate-90"}`}
-                    />
-                  </Button>
-
-                  {/* Color dot */}
-                  <div className="goal-title-dot" style={{ backgroundColor: goal.color }} />
-
-                  {/* Title section */}
-                  <div className="min-w-0 flex-1">
+            {/* Goal list */}
+            {goals
+              .filter((goal) => goal.tabId === activeTabId)
+              .sort((a, b) => a.order - b.order) // Ensure goals are sorted by order
+              .map((goal) => (
+                <div key={goal.id} ref={(el) => (goalRefs.current[goal.id] = el)} className="mb-4 rounded-md shadow-sm">
+                  <div className="flex items-center justify-between p-4 bg-white rounded-t-md">
                     {editingTitle === goal.id ? (
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center space-x-2">
                         <Input
-                          ref={titleInputRef}
+                          type="text"
                           value={editTitleValue}
                           onChange={(e) => setEditTitleValue(e.target.value)}
                           onKeyDown={(e) => handleTitleKeyDown(e, goal.id)}
-                          className="h-7 sm:h-8 py-1 text-sm sm:text-base md:text-xl font-medium"
-                          autoFocus
+                          onBlur={() => saveEditedTitle(goal.id)}
+                          ref={titleInputRef}
+                          className="w-full"
                         />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0"
-                          onClick={() => saveEditedTitle(goal.id)}
-                          aria-label="Save title"
-                        >
-                          <Save className="h-3 w-3 sm:h-4 sm:w-4" />
+                        <Button variant="ghost" size="icon" onClick={() => saveEditedTitle(goal.id)}>
+                          <Save className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0"
-                          onClick={cancelEditingTitle}
-                          aria-label="Cancel editing"
-                        >
-                          <X className="h-3 w-3 sm:h-4 sm:w-4" />
+                        <Button variant="ghost" size="icon" onClick={() => cancelEditingTitle()}>
+                          <X className="h-4 w-4" />
                         </Button>
                       </div>
                     ) : (
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-1 goal-title-container">
-                          <h3
-                            className={cn(
-                              "font-medium truncate",
-                              "text-sm sm:text-base md:text-xl", // Smaller on mobile, larger on desktop
-                            )}
-                          >
-                            {goal.title}
-                            {goal.sharable === false && (
-                              <span className="ml-2 text-xs text-muted-foreground">(Private)</span>
-                            )}
-                          </h3>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 sm:h-8 sm:w-8 edit-title-button flex-shrink-0"
-                            onClick={() => startEditingTitle(goal.id, goal.title)}
-                            aria-label="Edit title"
-                          >
-                            <Edit className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                          </Button>
-                        </div>
-
-                        {/* Display frequency if set */}
-                        {goal.frequency && (
-                          <div className="text-xs text-muted-foreground">
-                            {goal.frequency.count} time{goal.frequency.count !== 1 ? "s" : ""} per{" "}
-                            {goal.frequency.period}
-                          </div>
-                        )}
+                      <div className="flex items-center space-x-3">
+                        <button onClick={() => toggleCollapse(goal.id)} className="flex items-center space-x-2">
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: goal.color }}></div>
+                          <h3 className="text-lg font-semibold">{goal.title}</h3>
+                        </button>
                       </div>
                     )}
 
-                    {/* Removed the goal date that was here */}
+                    <div className="flex items-center space-x-2">
+                      <GoalReorderButtons goalId={goal.id} moveGoalUp={moveGoalUp} moveGoalDown={moveGoalDown} />
+                      <Button variant="ghost" size="icon" onClick={() => startEditingTitle(goal.id, goal.title)}>
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => toggleSharable(goal.id)}>
+                        <Globe className={cn("h-4 w-4", goal.sharable ? "text-green-500" : "text-gray-400")} />
+                      </Button>
+                      <CustomDropdown
+                        goal={goal}
+                        clearProgress={clearProgress}
+                        fillProgress={fillProgress}
+                        confirmDeleteGoal={confirmDeleteGoal}
+                      />
+                    </div>
                   </div>
 
-                  {/* Action buttons - all in one row */}
-                  <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-                    {!collapsedGoals[goal.id] && (
-                      <CustomDropdown
-                        items={[
-                          {
-                            label: "Clear Progress",
-                            icon: <XCircle className="h-3 w-3 sm:h-4 sm:w-4" />,
-                            onClick: () => clearProgress(goal.id),
-                          },
-                          {
-                            label: "Fill All Dates",
-                            icon: <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4" />,
-                            onClick: () => fillProgress(goal.id),
-                          },
-                          {
-                            label: "Share Goal",
-                            icon: <Share2 className="h-3 w-3 sm:h-4 sm:w-4" />,
-                            onClick: () => {
-                              shareGoalSummary([goal])
-                            },
-                          },
-                          {
-                            label: goal.sharable !== false ? "Make Private" : "Make Sharable",
-                            icon: <Share2 className="h-3 w-3 sm:h-4 sm:w-4" />,
-                            onClick: () => toggleSharable(goal.id),
-                          },
-                          {
-                            label: "Delete Goal",
-                            icon: <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />,
-                            onClick: () => confirmDeleteGoal(goal.id),
-                            className: "text-destructive",
-                          },
-                        ]}
-                      />
+                  <div
+                    className={cn(
+                      "overflow-hidden transition-all duration-300",
+                      collapsedGoals[goal.id] ? "h-0" : "h-auto",
                     )}
-
-                    {/* Reorder buttons */}
-                    <GoalReorderButtons
+                  >
+                    <Separator />
+                    <StreakBar
                       goal={goal}
-                      isFirst={index === 0}
-                      isLast={index === activeTabGoals.length - 1}
-                      onMoveUp={() => moveGoalUp(goal.id)}
-                      onMoveDown={() => moveGoalDown(goal.id)}
-                      isMoving={isMoving}
+                      updateProgress={updateProgress}
+                      handleExtendEndDate={handleExtendEndDate}
+                      viewNotes={viewNotes}
                     />
                   </div>
                 </div>
-
-                {!collapsedGoals[goal.id] && (
-                  <StreakBar
-                    startDate={goal.startDate}
-                    endDate={goal.endDate}
-                    progress={goal.progress}
-                    color={goal.color}
-                    notes={goal.notes}
-                    frequency={goal.frequency}
-                    onDateClick={(date) => updateProgress(goal.id, date)}
-                    onExtendEndDate={(date) => handleExtendEndDate(goal.id, date)}
-                    onViewNotes={(date) => viewNotes(goal.id, date)}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center p-8 border border-dashed rounded-lg border-border">
-            <p className="text-muted-foreground mb-4 text-sm sm:text-base">
-              {tabs.length > 0
-                ? `No goals added to this tab yet. Add your first goal to get started!`
-                : `No goals added yet. Add your first goal to get started!`}
-            </p>
-          </div>
+              ))}
+          </>
         )}
-      </div>
 
-      {/* Custom Mobile Dialog for Extending End Date */}
-      <MobileDialog
-        isOpen={extendDialogOpen}
-        onClose={() => setExtendDialogOpen(false)}
-        title="Extend Goal End Date"
-        description={`Do you want to extend this goal's end date to ${
-          extendInfo?.newEndDate ? new Date(extendInfo.newEndDate).toLocaleDateString() : ""
-        }?`}
-        onConfirm={confirmExtendEndDate}
-        confirmText="Extend End Date"
-        cancelText="Cancel"
-      />
+        {/* Goal Form Dialog */}
+        <MobileDialog open={showForm} setOpen={setShowForm} title="Add New Goal">
+          <GoalForm addGoal={addGoal} setOpen={setShowForm} />
+        </MobileDialog>
 
-      {/* Note Dialog */}
-      <NoteDialog
-        isOpen={noteDialogOpen}
-        onClose={() => setNoteDialogOpen(false)}
-        date={noteInfo?.date || ""}
-        initialNote={noteInfo?.initialNote || ""}
-        onSave={saveNote}
-        title="Add Note"
-      />
-
-      {/* Delete Confirmation Dialog */}
-      <MobileDialog
-        isOpen={deleteDialogOpen}
-        onClose={() => setDeleteDialogOpen(false)}
-        title="Delete Goal"
-        description="Are you sure you want to delete this goal? This action cannot be undone."
-        onConfirm={deleteGoal}
-        confirmText="Delete"
-        cancelText="Cancel"
-      />
-
-      {/* Delete Tab Confirmation Dialog */}
-      <MobileDialog
-        isOpen={deleteTabDialogOpen}
-        onClose={() => setDeleteTabDialogOpen(false)}
-        title="Delete Tab"
-        description={`Are you sure you want to delete the "${deleteTabInfo?.tabName}" tab? All goals in this tab will be moved to another tab.`}
-        onConfirm={deleteTab}
-        confirmText="Delete Tab"
-        cancelText="Cancel"
-      />
-
-      {/* Share Dialog */}
-      <MobileDialog
-        isOpen={shareDialogOpen}
-        onClose={() => setShareDialogOpen(false)}
-        title="Share Summary"
-        description={
-          <div className="mt-2">
-            <div className="bg-muted p-3 rounded-md text-xs sm:text-sm mb-4 whitespace-pre-wrap">{shareText}</div>
-            <div className="flex flex-col gap-2">
-              <Button onClick={shareToTwitter} className="w-full">
-                Share to X (Twitter)
-              </Button>
-              <Button onClick={copyToClipboard} variant="outline" className="w-full">
-                Copy to Clipboard
-              </Button>
-            </div>
+        {/* Extend End Date Confirmation Dialog */}
+        <MobileDialog open={extendDialogOpen} setOpen={setExtendDialogOpen} title="Extend End Date">
+          <p>Are you sure you want to extend the end date?</p>
+          <div className="mt-4 flex justify-end space-x-2">
+            <Button variant="ghost" onClick={() => setExtendDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={confirmExtendEndDate}>Confirm</Button>
           </div>
-        }
-        onConfirm={() => setShareDialogOpen(false)}
-        confirmText="Close"
-        cancelText=""
-      />
+        </MobileDialog>
 
-      {/* Goal Celebration Animation */}
-      <GoalCelebration
-        isVisible={celebrationVisible}
-        color={celebrationColor}
-        sourceRect={celebrationRect}
-        onComplete={handleCelebrationComplete}
-        isFrequencyGoal={isFrequencyGoal}
-      />
+        {/* Note Dialog */}
+        <NoteDialog
+          open={noteDialogOpen}
+          setOpen={setNoteDialogOpen}
+          initialNote={noteInfo?.initialNote || ""}
+          saveNote={saveNote}
+        />
 
-      {/* Achievement Popup */}
-      <AchievementPopup
-        isVisible={achievementPopupVisible}
-        goalTitle={achievedGoalTitle}
-        onClose={() => setAchievementPopupVisible(false)}
-        isFrequencyGoal={isFrequencyGoal}
-        frequencyText={frequencyText}
-      />
-    </div>
+        {/* Delete Confirmation Dialog */}
+        <MobileDialog open={deleteDialogOpen} setOpen={setDeleteDialogOpen} title="Delete Goal">
+          <p>Are you sure you want to delete this goal?</p>
+          <div className="mt-4 flex justify-end space-x-2">
+            <Button variant="ghost" onClick={() => setDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={deleteGoal}>Delete</Button>
+          </div>
+        </MobileDialog>
+
+        {/* Delete Tab Confirmation Dialog */}
+        <MobileDialog open={deleteTabDialogOpen} setOpen={setDeleteTabDialogOpen} title="Delete Tab">
+          <p>
+            Are you sure you want to delete tab "{deleteTabInfo?.tabName}"? All goals in this tab will be moved to
+            another tab.
+          </p>
+          <div className="mt-4 flex justify-end space-x-2">
+            <Button variant="ghost" onClick={() => setDeleteTabDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={deleteTab}>Delete</Button>
+          </div>
+        </MobileDialog>
+
+        {/* Share Dialog */}
+        <MobileDialog open={shareDialogOpen} setOpen={setShareDialogOpen} title="Share Summary">
+          <p>Share your progress with others!</p>
+          <Input type="textarea" value={shareText} readOnly className="mt-4" />
+          <div className="mt-4 flex justify-end space-x-2">
+            <Button variant="ghost" onClick={() => setShareDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                navigator.clipboard.writeText(shareText)
+                alert("Copied to clipboard!")
+                setShareDialogOpen(false)
+              }}
+            >
+              Copy to Clipboard
+            </Button>
+          </div>
+        </MobileDialog>
+
+        {/* Celebration Animation */}
+        <GoalCelebration
+          visible={celebrationVisible}
+          color={celebrationColor}
+          rect={celebrationRect}
+          isFrequencyGoal={isFrequencyGoal}
+          onComplete={handleCelebrationComplete}
+        />
+
+        {/* Achievement Popup */}
+        <AchievementPopup
+          visible={achievementPopupVisible}
+          title={achievedGoalTitle}
+          frequencyText={frequencyText}
+          onClose={() => setAchievementPopupVisible(false)}
+        />
+      </div>
+    </>
   )
 }
-
-// Make sure the component is properly exported as default as well
-export default GoalTracker

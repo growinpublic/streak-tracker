@@ -15,6 +15,7 @@ interface MobileDialogProps {
   confirmText?: string
   cancelText?: string
   hideCancel?: boolean
+  confirmVariant?: "default" | "destructive" | "outline"
 }
 
 export function MobileDialog({
@@ -26,6 +27,7 @@ export function MobileDialog({
   confirmText = "Confirm",
   cancelText = "Cancel",
   hideCancel = false,
+  confirmVariant = "default",
 }: MobileDialogProps) {
   const [mounted, setMounted] = useState(false)
 
@@ -74,9 +76,11 @@ export function MobileDialog({
           )}
 
           <div className="flex flex-col gap-2">
-            <Button onClick={onConfirm} className="w-full">
-              {confirmText}
-            </Button>
+            {confirmText && (
+              <Button onClick={onConfirm} className="w-full" variant={confirmVariant}>
+                {confirmText}
+              </Button>
+            )}
             {!hideCancel && cancelText && (
               <Button variant="outline" onClick={onClose} className="w-full">
                 {cancelText}
