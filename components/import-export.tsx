@@ -14,7 +14,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { AlertTriangle } from "lucide-react"
+import { Download, Upload, Trash2, AlertTriangle } from "lucide-react"
 
 export function ImportExport() {
   const [isImporting, setIsImporting] = useState(false)
@@ -160,19 +160,22 @@ export function ImportExport() {
 
   return (
     <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
-      <Button variant="outline" onClick={handleImportClick} disabled={isImporting} className="flex-1 sm:flex-none">
+      <Button variant="outline" onClick={handleImportClick} disabled={isImporting}>
+        <Upload className="mr-2 h-4 w-4" />
         {isImporting ? "Importing..." : "Import"}
       </Button>
 
-      <Button variant="outline" onClick={handleExport} disabled={isExporting} className="flex-1 sm:flex-none">
+      <Button variant="outline" onClick={handleExport} disabled={isExporting}>
+        <Download className="mr-2 h-4 w-4" />
         {isExporting ? "Exporting..." : "Export"}
       </Button>
 
       <Button
         variant="outline"
         onClick={handleDeleteAll}
-        className="flex-1 sm:flex-none text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20"
+        className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20"
       >
+        <Trash2 className="mr-2 h-4 w-4" />
         Delete All
       </Button>
 

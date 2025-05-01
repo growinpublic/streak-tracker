@@ -970,28 +970,32 @@ export function GoalTracker() {
           </div>
         ) : (
           <>
-            {/* Collapsible controls */}
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex space-x-2">
-                <Button variant="outline" size="sm" onClick={collapseAll}>
-                  <ChevronsUp className="mr-2 h-4 w-4" />
-                  Collapse All
-                </Button>
-                <Button variant="outline" size="sm" onClick={expandAll}>
-                  <ChevronsDown className="mr-2 h-4 w-4" />
-                  Expand All
-                </Button>
-              </div>
-
-              <div className="flex space-x-2">
-                <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
-                  <Share2 className="mr-2 h-4 w-4" />
-                  Share
-                </Button>
-                <ImportExport goals={goals} setGoals={setGoals} />
+            {/* Buttons row with reordered buttons */}
+            <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
+              {/* Left side: Add Goal, Delete All, Import, Export, Share All */}
+              <div className="flex flex-wrap gap-2">
                 <Button onClick={() => setShowForm(true)}>
                   <PlusCircle className="mr-2 h-4 w-4" />
                   Add Goal
+                </Button>
+
+                <ImportExport goals={goals} setGoals={setGoals} />
+
+                <Button variant="outline" onClick={() => setShareDialogOpen(true)}>
+                  <Share2 className="mr-2 h-4 w-4" />
+                  Share All
+                </Button>
+              </div>
+
+              {/* Right side: Collapse All, Expand All */}
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={collapseAll}>
+                  <ChevronsUp className="mr-2 h-4 w-4" />
+                  Collapse All
+                </Button>
+                <Button variant="outline" onClick={expandAll}>
+                  <ChevronsDown className="mr-2 h-4 w-4" />
+                  Expand All
                 </Button>
               </div>
             </div>
