@@ -1,5 +1,7 @@
 "use client"
 
+import type React from "react"
+
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { X } from "lucide-react"
@@ -8,10 +10,11 @@ interface MobileDialogProps {
   isOpen: boolean
   onClose: () => void
   title: string
-  description?: string
+  description?: React.ReactNode
   onConfirm: () => void
   confirmText?: string
   cancelText?: string
+  hideCancel?: boolean
 }
 
 export function MobileDialog({
@@ -22,6 +25,7 @@ export function MobileDialog({
   onConfirm,
   confirmText = "Confirm",
   cancelText = "Cancel",
+  hideCancel = false,
 }: MobileDialogProps) {
   const [mounted, setMounted] = useState(false)
 
@@ -60,22 +64,25 @@ export function MobileDialog({
           </Button>
         </div>
 
-        {description && (
-          <div className="p-4 border-b">
-            <p className="text-sm text-muted-foreground">{description}</p>
-          </div>
-        )}
+        <div className="p-4">
+          {typeof description === "string" ? (
+            <div className="mb-4">
+              <p className="text-sm text-muted-foreground">{description}</p>
+            </div>
+          ) : (
+            <div className="mb-4">{description}</div>
+          )}
 
-        <div className="p-4 flex flex-col gap-2">
-          <Button onClick={onConfirm} className="w-full">
-            {confirmText}
-          </Button>
-          { cancelText != "" (
-            <Button variant="outline" onClick={onClose} className="w-full">
-              {cancelText}
+          <div className="flex flex-col gap-2">
+            <Button onClick={onConfirm} className="w-full">
+              {confirmText}
             </Button>
-            ):(<></>)
-          }
+            {!hideCancel && cancelText && (
+              <Button variant="outline" onClick={onClose} className="w-full">
+                {cancelText}
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </div>
