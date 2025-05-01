@@ -3,9 +3,8 @@
 import type React from "react"
 
 import { useState, useRef } from "react"
-import { db } from "@/lib/db"
-import { useToast } from "@/components/ui/use-toast"
 import { Button } from "@/components/ui/button"
+import { Download, Upload, AlertCircle, CheckCircle2 } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -14,194 +13,244 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { Download, Upload, Trash2, AlertTriangle } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { getAllGoals, db, type GoalRecord } from "@/lib/db"
+import Papa from "papaparse" // Import PapaParse as a default import
 
-export function ImportExport() {
-  const [isImporting, setIsImporting] = useState(false)
-  const [isExporting, setIsExporting] = useState(false)
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+export function ImportExport({ onImportComplete }: { onImportComplete: () => void }) {
+  const [importing, setImporting] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [showImportDialog, setShowImportDialog] = useState(false)
+  const [importStatus, setImportStatus] = useState<{ success: boolean; message: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const { toast } = useToast()
 
+  // Export all streaks to CSV
   const handleExport = async () => {
     try {
-      setIsExporting(true)
+      setExporting(true)
 
-      // Get all data from the database
-      const goals = await db.goals.toArray()
-      const tabs = await db.tabs.toArray()
-      const activeTab = await db.activeTab.get(1)
+      // Get all streaks from the database
+      const streaks = await getAllGoals()
 
-      // Create export object
-      const exportData = {
-        goals,
-        tabs,
-        activeTab,
-      }
+      // Transform data for CSV export
+      const exportData = streaks.map((streak) => {
+        // Convert notes object to JSON string
+        const notesJson = JSON.stringify(streak.notes || {})
 
-      // Convert to JSON and create download link
-      const dataStr = JSON.stringify(exportData)
-      const dataUri = `data:application/json;charset=utf-8,${encodeURIComponent(dataStr)}`
-
-      const exportFileName = `streak-tracker-export-${new Date().toISOString().split("T")[0]}.json`
-
-      const linkElement = document.createElement("a")
-      linkElement.setAttribute("href", dataUri)
-      linkElement.setAttribute("download", exportFileName)
-      linkElement.click()
-
-      toast({
-        title: "Export successful",
-        description: "Your data has been exported successfully",
+        return {
+          id: streak.id,
+          title: streak.title,
+          startDate: streak.startDate,
+          endDate: streak.endDate,
+          color: streak.color,
+          progress: streak.progress.join("|"), // Join progress dates with a pipe character
+          order: streak.order || 0, // Include order in export
+          notes: notesJson, // Add notes as JSON string
+          tabId: streak.tabId || "", // Include tabId
+          frequency: streak.frequency ? JSON.stringify(streak.frequency) : "", // Include frequency
+        }
       })
+
+      // Convert to CSV
+      const csv = Papa.unparse(exportData)
+
+      // Create a download link
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.setAttribute("href", url)
+      link.setAttribute("download", `streak-tracker-export-${new Date().toISOString().split("T")[0]}.csv`)
+      link.style.visibility = "hidden"
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
     } catch (error) {
       console.error("Export failed:", error)
-      toast({
-        title: "Export failed",
-        description: "There was an error exporting your data",
-        variant: "destructive",
-      })
     } finally {
-      setIsExporting(false)
+      setExporting(false)
     }
   }
 
+  // Trigger file input click
   const handleImportClick = () => {
     fileInputRef.current?.click()
   }
 
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle file selection
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
 
-    try {
-      setIsImporting(true)
+    setShowImportDialog(true)
+    setImportStatus(null)
 
-      const fileContent = await file.text()
-      const importData = JSON.parse(fileContent)
+    // Parse the CSV file
+    Papa.parse(file, {
+      header: true,
+      complete: async (results) => {
+        try {
+          setImporting(true)
 
-      // Validate the imported data structure
-      if (!importData.goals || !Array.isArray(importData.goals)) {
-        throw new Error("Invalid import file: missing goals data")
-      }
+          // Validate and transform the data
+          if (results.errors.length > 0) {
+            throw new Error("CSV parsing error: " + results.errors[0].message)
+          }
 
-      if (!importData.tabs || !Array.isArray(importData.tabs)) {
-        throw new Error("Invalid import file: missing tabs data")
-      }
+          const importData = results.data as any[]
 
-      // Clear existing data
-      await db.goals.clear()
-      await db.tabs.clear()
+          // Validate required fields
+          const invalidRows = importData.filter(
+            (row) => !row.id || !row.title || !row.startDate || !row.endDate || !row.color,
+          )
 
-      // Import new data
-      await db.goals.bulkAdd(importData.goals)
-      await db.tabs.bulkAdd(importData.tabs)
+          if (invalidRows.length > 0) {
+            throw new Error(`${invalidRows.length} rows have missing required fields`)
+          }
 
-      // Set active tab if available
-      if (importData.activeTab) {
-        await db.activeTab.put(importData.activeTab)
-      }
+          // Transform data for database
+          const streaks: GoalRecord[] = importData.map((row, index) => {
+            // Parse notes from JSON string or use empty object
+            let notes = {}
+            try {
+              if (row.notes) {
+                notes = JSON.parse(row.notes)
+              }
+            } catch (e) {
+              console.warn("Failed to parse notes for row:", row.id)
+            }
 
-      toast({
-        title: "Import successful",
-        description: "Your data has been imported successfully",
-      })
+            // Parse frequency if it exists
+            let frequency = undefined
+            try {
+              if (row.frequency) {
+                frequency = JSON.parse(row.frequency)
+              }
+            } catch (e) {
+              console.warn("Failed to parse frequency for row:", row.id)
+            }
 
-      // Reload the page to reflect changes
-      window.location.reload()
-    } catch (error) {
-      console.error("Import failed:", error)
-      toast({
-        title: "Import failed",
-        description: error instanceof Error ? error.message : "There was an error importing your data",
-        variant: "destructive",
-      })
-    } finally {
-      setIsImporting(false)
-      // Reset the file input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ""
-      }
-    }
-  }
+            return {
+              id: row.id,
+              title: row.title,
+              startDate: row.startDate,
+              endDate: row.endDate,
+              color: row.color,
+              progress: row.progress ? row.progress.split("|").filter(Boolean) : [],
+              order: row.order !== undefined ? Number(row.order) : index, // Use provided order or index
+              notes: notes, // Add parsed notes
+              tabId: row.tabId || "", // Use tabId if available
+              frequency: frequency, // Add parsed frequency
+            }
+          })
 
-  const handleDeleteAll = async () => {
-    setShowDeleteDialog(true)
-  }
+          // Use a transaction to clear and add data
+          await db.transaction("rw", db.goals, async () => {
+            // Clear existing data
+            await db.goals.clear()
+            console.log("Cleared existing goals")
 
-  const confirmDeleteAll = async () => {
-    try {
-      // Clear all data
-      await db.goals.clear()
-      await db.tabs.clear()
+            // Import new data one by one
+            let successCount = 0
+            let errorCount = 0
 
-      // Reset active tab
-      await db.activeTab.put({ id: 1, activeTabId: "all" })
+            for (const streak of streaks) {
+              try {
+                await db.goals.put(streak)
+                successCount++
+              } catch (error) {
+                console.error(`Failed to import goal ${streak.id}:`, error)
+                errorCount++
+              }
+            }
 
-      toast({
-        title: "Data deleted",
-        description: "All your data has been deleted successfully",
-      })
+            console.log(`Imported ${successCount} goals, ${errorCount} failed`)
 
-      // Close the dialog
-      setShowDeleteDialog(false)
+            if (errorCount > 0) {
+              throw new Error(`Failed to import ${errorCount} goals`)
+            }
+          })
 
-      // Reload the page to reflect changes
-      window.location.reload()
-    } catch (error) {
-      console.error("Delete failed:", error)
-      toast({
-        title: "Delete failed",
-        description: "There was an error deleting your data",
-        variant: "destructive",
-      })
-    }
+          setImportStatus({
+            success: true,
+            message: `Successfully imported ${streaks.length} streaks`,
+          })
+
+          // Refresh the UI
+          onImportComplete()
+        } catch (error) {
+          console.error("Import failed:", error)
+          setImportStatus({
+            success: false,
+            message: error instanceof Error ? error.message : "Import failed",
+          })
+        } finally {
+          setImporting(false)
+          if (fileInputRef.current) {
+            fileInputRef.current.value = ""
+          }
+        }
+      },
+      error: (error) => {
+        setImportStatus({
+          success: false,
+          message: `Failed to parse CSV: ${error.message}`,
+        })
+        setImporting(false)
+        if (fileInputRef.current) {
+          fileInputRef.current.value = ""
+        }
+      },
+    })
   }
 
   return (
-    <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
-      <Button variant="outline" onClick={handleImportClick} disabled={isImporting}>
-        <Upload className="mr-2 h-4 w-4" />
-        {isImporting ? "Importing..." : "Import"}
+    <>
+      <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting} className="whitespace-nowrap">
+        <Download className="h-4 w-4 sm:mr-2" />
+        <span className="hidden sm:inline">Export</span>
       </Button>
-
-      <Button variant="outline" onClick={handleExport} disabled={isExporting}>
-        <Download className="mr-2 h-4 w-4" />
-        {isExporting ? "Exporting..." : "Export"}
-      </Button>
-
       <Button
         variant="outline"
-        onClick={handleDeleteAll}
-        className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20"
+        size="sm"
+        onClick={handleImportClick}
+        disabled={importing}
+        className="whitespace-nowrap"
       >
-        <Trash2 className="mr-2 h-4 w-4" />
-        Delete All
+        <Upload className="h-4 w-4 sm:mr-2" />
+        <span className="hidden sm:inline">Import</span>
       </Button>
+      <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv" className="hidden" />
 
-      <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".json" className="hidden" />
-
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-red-500" />
-              Confirm Delete All
-            </DialogTitle>
+            <DialogTitle>Import Streaks</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete all your data? This action cannot be undone.
+              Importing will replace all existing streaks with the data from the CSV file.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="flex gap-2 sm:justify-end">
-            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={confirmDeleteAll}>
-              Delete All
+
+          {importStatus && (
+            <Alert variant={importStatus.success ? "default" : "destructive"}>
+              {importStatus.success ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+              <AlertTitle>{importStatus.success ? "Import Successful" : "Import Failed"}</AlertTitle>
+              <AlertDescription>{importStatus.message}</AlertDescription>
+            </Alert>
+          )}
+
+          {importing && (
+            <div className="flex justify-center py-4">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowImportDialog(false)} disabled={importing}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   )
 }
