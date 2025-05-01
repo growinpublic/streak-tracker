@@ -983,7 +983,7 @@ export function GoalTracker() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-120px)]">
+    <div className="flex flex-col h-[calc(100vh-120px)] max-w-[1200px] mx-auto w-full">
       {/* Fixed header section with tabs and controls */}
       <div className="flex-none">
         {/* Tab Navigation - now at the very top */}
@@ -1001,11 +1001,12 @@ export function GoalTracker() {
           />
         )}
 
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3 sm:mb-4">
-          <div className="relative w-full sm:w-auto">
+        {/* Menu buttons container with consistent containment */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3 sm:mb-4 w-full">
+          <div className="relative w-full">
             {/* Swipeable button container */}
             <div
-              className="flex gap-2 overflow-x-auto scrollbar-hide pb-2 sm:pb-0 snap-x snap-mandatory swipe-hint sm:swipe-hint-none"
+              className="flex gap-2 overflow-x-auto scrollbar-hide pb-2 sm:pb-0 snap-x snap-mandatory swipe-hint sm:swipe-hint-none w-full"
               style={{
                 WebkitOverflowScrolling: "touch",
                 scrollbarWidth: "none",

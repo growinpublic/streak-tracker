@@ -80,7 +80,7 @@ export function TabNavigation({
 
   return (
     <>
-      <div className="mb-6 border border-border rounded-t-lg overflow-hidden">
+      <div className="mb-6 border border-border rounded-t-lg overflow-hidden w-full">
         <div
           className="bg-muted/30 flex items-center overflow-x-auto scrollbar-hide touch-scroll"
           ref={scrollContainerRef}
