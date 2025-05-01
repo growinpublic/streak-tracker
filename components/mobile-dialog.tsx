@@ -70,9 +70,12 @@ export function MobileDialog({
           <Button onClick={onConfirm} className="w-full">
             {confirmText}
           </Button>
-          <Button variant="outline" onClick={onClose} className="w-full">
-            {cancelText}
-          </Button>
+          { cancelText != "" (
+            <Button variant="outline" onClick={onClose} className="w-full">
+              {cancelText}
+            </Button>
+            ):(<></>)
+          }
         </div>
       </div>
     </div>

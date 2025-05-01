@@ -31,6 +31,7 @@ import {
   updateGoal as dbUpdateGoal,
   updateGoalNote,
   deleteTabAndMoveGoals,
+  updateGoalSharable,
 } from "@/lib/db"
 import { LoadingSpinner } from "./loading-spinner"
 import { ImportExport } from "./import-export"
@@ -46,7 +47,7 @@ import { TabNavigation } from "./tab-navigation"
 import { GoalReorderButtons } from "./goal-reorder-buttons"
 import { cn } from "@/lib/utils"
 
-// Update the Goal interface to include frequency
+// Update the Goal interface to include sharable
 export interface Goal {
   id: string
   title: string
@@ -61,9 +62,10 @@ export interface Goal {
     count: number // How many times
     period: "day" | "week" | "month" // Per what period
   }
+  sharable?: boolean // New field to control if goal is included in shares
 }
 
-// Also update the recordToGoal function to handle frequency
+// Also update the recordToGoal function to handle sharable
 export function recordToGoal(record: GoalRecord): Goal {
   return {
     ...record,
@@ -73,10 +75,11 @@ export function recordToGoal(record: GoalRecord): Goal {
     notes: record.notes || {}, // Default to empty object if notes is not set
     tabId: record.tabId || "", // Default to empty string if tabId is not set
     frequency: record.frequency || undefined, // Add frequency field
+    sharable: record.sharable !== undefined ? record.sharable : true, // Default to true if not set
   }
 }
 
-// Update the goalToRecord function to handle frequency
+// Update the goalToRecord function to handle sharable
 function goalToRecord(goal: Goal): GoalRecord {
   return {
     ...goal,
@@ -86,6 +89,7 @@ function goalToRecord(goal: Goal): GoalRecord {
     notes: goal.notes || {}, // Default to empty object if notes is not set
     tabId: goal.tabId || "", // Default to empty string if tabId is not set
     frequency: goal.frequency || undefined, // Add frequency field
+    sharable: goal.sharable !== undefined ? goal.sharable : true, // Default to true if not set
   }
 }
 
@@ -95,7 +99,7 @@ export function GoalTracker() {
   const [tabs, setTabs] = useState<TabRecord[]>([])
   const [activeTabId, setActiveTabId] = useState<string>("")
   const [loading, setLoading] = useState(true)
-  const [isMoving, setIsMoving] = useState(false)
+  const [isMoving, setIsMoving] = useState(false) // Fixed: Initialize with false instead of isMoving
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [shareText, setShareText] = useState("")
 
@@ -323,6 +327,7 @@ export function GoalTracker() {
         order: newOrder,
         notes: {}, // Initialize with empty notes
         tabId: activeTabId, // Automatically assign to active tab
+        sharable: true, // Default to true
       }
 
       await dbAddGoal(goalToRecord(newGoal))
@@ -745,7 +750,7 @@ export function GoalTracker() {
   }
 
   // Generate share text for today's summary
-  const generateShareText = () => {
+  const generateShareText = (goalsToShare?: Goal[]) => {
     const today = new Date()
 
     // Format today's date
@@ -754,8 +759,11 @@ export function GoalTracker() {
     // Start with header
     let text = `📊 Streak - ${formattedDate}\n\n`
 
+    // Use provided goals or filter all goals by sharable flag
+    const sharableGoals = goalsToShare || goals.filter((goal) => goal.sharable !== false)
+
     // Sort goals by completion percentage (descending)
-    const sortedGoals = [...goals].sort((a, b) => {
+    const sortedGoals = [...sharableGoals].sort((a, b) => {
       const aProgress = countValidProgressDays(a) / calculateTotalDays(a)
       const bProgress = countValidProgressDays(b) / calculateTotalDays(b)
       return bProgress - aProgress
@@ -775,8 +783,8 @@ export function GoalTracker() {
   }
 
   // Share summary on social media
-  const shareGoalSummary = () => {
-    const text = generateShareText()
+  const shareGoalSummary = (goalsToShare?: Goal[]) => {
+    const text = generateShareText(goalsToShare)
     setShareText(text)
 
     // Check if Web Share API is available
@@ -797,24 +805,22 @@ export function GoalTracker() {
     }
   }
 
-  // Share to Twitter/X
-  const shareToTwitter = () => {
-    const encodedText = encodeURIComponent(shareText)
-    window.open(`https://twitter.com/intent/tweet?text=${encodedText}`, "_blank")
-    setShareDialogOpen(false)
-  }
+  // Toggle sharable status for a goal
+  const toggleSharable = async (goalId: string) => {
+    try {
+      const goal = goals.find((g) => g.id === goalId)
+      if (!goal) return
 
-  // Copy to clipboard
-  const copyToClipboard = () => {
-    navigator.clipboard
-      .writeText(shareText)
-      .then(() => {
-        alert("Summary copied to clipboard!")
-        setShareDialogOpen(false)
-      })
-      .catch((err) => {
-        console.error("Failed to copy text: ", err)
-      })
+      const newSharable = !goal.sharable
+
+      // Update in database
+      await updateGoalSharable(goalId, newSharable)
+
+      // Update local state
+      setGoals((prev) => prev.map((g) => (g.id === goalId ? { ...g, sharable: newSharable } : g)))
+    } catch (error) {
+      console.error("Failed to update sharable status:", error)
+    }
   }
 
   // COMPLETELY REWRITTEN REORDERING FUNCTIONS
@@ -966,6 +972,16 @@ export function GoalTracker() {
     return <LoadingSpinner />
   }
 
+  const shareToTwitter = () => {
+    const twitterURL = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`
+    window.open(twitterURL, "_blank")
+  }
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(shareText)
+    alert("Copied to clipboard!")
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-120px)]">
       {/* Fixed header section with tabs and controls */}
@@ -1033,12 +1049,12 @@ export function GoalTracker() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={shareGoalSummary}
-                  title="Share summary"
+                  onClick={() => shareGoalSummary()}
+                  title="Share all goals"
                   className="snap-start whitespace-nowrap"
                 >
                   <Share2 className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Share</span>
+                  <span className="hidden sm:inline">Share All</span>
                 </Button>
               </div>
             </div>
@@ -1127,6 +1143,9 @@ export function GoalTracker() {
                             )}
                           >
                             {goal.title}
+                            {goal.sharable === false && (
+                              <span className="ml-2 text-xs text-muted-foreground">(Private)</span>
+                            )}
                           </h3>
                           <Button
                             variant="ghost"
@@ -1171,13 +1190,13 @@ export function GoalTracker() {
                             label: "Share Goal",
                             icon: <Share2 className="h-3 w-3 sm:h-4 sm:w-4" />,
                             onClick: () => {
-                              const completedDays = countValidProgressDays(goal)
-                              const today = new Date()
-                              const formattedDate = format(today, "MMMM d, yyyy")
-                              const text = `📊 Streak - ${formattedDate}\n\n☑️ Day ${completedDays}: ${goal.title}`
-                              setShareText(text)
-                              setShareDialogOpen(true)
+                              shareGoalSummary([goal])
                             },
+                          },
+                          {
+                            label: goal.sharable !== false ? "Make Private" : "Make Sharable",
+                            icon: <Share2 className="h-3 w-3 sm:h-4 sm:w-4" />,
+                            onClick: () => toggleSharable(goal.id),
                           },
                           {
                             label: "Delete Goal",

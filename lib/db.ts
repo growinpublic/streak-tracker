@@ -15,6 +15,7 @@ export interface GoalRecord {
     count: number // How many times
     period: "day" | "week" | "month" // Per what period
   }
+  sharable?: boolean // New field to control if goal is included in shares
 }
 
 // Define the Tab interface for the database
@@ -100,6 +101,21 @@ class StreakDatabase extends Dexie {
         // No need to modify existing goals, frequency will be undefined for them
         console.log("Upgraded database to version 5 - added frequency support")
       })
+
+    // Upgrade to version 6 - add sharable field
+    this.version(6)
+      .stores({
+        goals: "id, title, startDate, endDate, order, tabId", // Schema remains the same
+      })
+      .upgrade((tx) => {
+        // Set all existing goals as sharable by default
+        return tx
+          .table("goals")
+          .toCollection()
+          .modify((goal) => {
+            goal.sharable = true
+          })
+      })
   }
 }
 
@@ -159,6 +175,11 @@ export async function getGoalNotes(id: string): Promise<Record<string, string>> 
   const goal = await db.goals.get(id)
   if (!goal) return {}
   return goal.notes || {}
+}
+
+// Add a function to update the sharable status of a goal
+export async function updateGoalSharable(id: string, sharable: boolean): Promise<number> {
+  return await db.goals.update(id, { sharable })
 }
 
 // Tab-related functions

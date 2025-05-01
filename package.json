@@ -59,9 +59,9 @@
     "vaul": "^0.9.6",
     "zod": "^3.24.1",
     "@supabase/supabase-js": "latest",
-    "dexie": "latest",
     "@supabase/auth-helpers-nextjs": "latest",
-    "papaparse": "latest"
+    "papaparse": "latest",
+    "dexie": "latest"
   },
   "devDependencies": {
     "@types/node": "^22",

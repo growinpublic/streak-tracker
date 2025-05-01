@@ -43,6 +43,9 @@ export function GoalForm({ onSubmit, onCancel }: GoalFormProps) {
   const [frequencyCount, setFrequencyCount] = useState(1)
   const [frequencyPeriod, setFrequencyPeriod] = useState<"day" | "week" | "month">("week")
 
+  // New state for sharable
+  const [sharable, setSharable] = useState(true)
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!title || !startDate || !endDate) return
@@ -52,6 +55,7 @@ export function GoalForm({ onSubmit, onCancel }: GoalFormProps) {
       startDate,
       endDate,
       color,
+      sharable,
     }
 
     // Add frequency if enabled
@@ -168,6 +172,14 @@ export function GoalForm({ onSubmit, onCancel }: GoalFormProps) {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Sharable toggle */}
+      <div className="flex items-center justify-between">
+        <Label htmlFor="sharable" className="cursor-pointer">
+          Include in Shares
+        </Label>
+        <Switch id="sharable" checked={sharable} onCheckedChange={setSharable} />
       </div>
 
       <div className="space-y-2">
