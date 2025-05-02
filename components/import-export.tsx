@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { getAllGoals, db, type GoalRecord } from "@/lib/db"
-import Papa from "papaparse" // Import PapaParse as a default import
+import Papa from "papaparse"
 
 export function ImportExport({ onImportComplete }: { onImportComplete: () => void }) {
   const [importing, setImporting] = useState(false)
@@ -29,25 +29,29 @@ export function ImportExport({ onImportComplete }: { onImportComplete: () => voi
     try {
       setExporting(true)
 
-      // Get all streaks from the database
-      const streaks = await getAllGoals()
+      // Get all data from the database
+      const goals = await getAllGoals()
+      const tabs = await db.tabs.toArray()
 
-      // Transform data for CSV export
-      const exportData = streaks.map((streak) => {
+      // Transform goals data for CSV export
+      const exportData = goals.map((goal) => {
         // Convert notes object to JSON string
-        const notesJson = JSON.stringify(streak.notes || {})
+        const notesJson = JSON.stringify(goal.notes || {})
+        // Convert frequency to JSON string if it exists
+        const frequencyJson = goal.frequency ? JSON.stringify(goal.frequency) : ""
 
         return {
-          id: streak.id,
-          title: streak.title,
-          startDate: streak.startDate,
-          endDate: streak.endDate,
-          color: streak.color,
-          progress: streak.progress.join("|"), // Join progress dates with a pipe character
-          order: streak.order || 0, // Include order in export
-          notes: notesJson, // Add notes as JSON string
-          tabId: streak.tabId || "", // Include tabId
-          frequency: streak.frequency ? JSON.stringify(streak.frequency) : "", // Include frequency
+          id: goal.id,
+          title: goal.title,
+          startDate: goal.startDate,
+          endDate: goal.endDate,
+          color: goal.color,
+          progress: goal.progress.join("|"), // Join progress dates with a pipe character
+          order: goal.order || 0,
+          notes: notesJson,
+          tabId: goal.tabId || "",
+          frequency: frequencyJson,
+          sharable: goal.sharable ? "true" : "false",
         }
       })
 
@@ -66,6 +70,11 @@ export function ImportExport({ onImportComplete }: { onImportComplete: () => voi
       document.body.removeChild(link)
     } catch (error) {
       console.error("Export failed:", error)
+      setImportStatus({
+        success: false,
+        message: error instanceof Error ? error.message : "Export failed",
+      })
+      setShowImportDialog(true)
     } finally {
       setExporting(false)
     }
@@ -129,6 +138,9 @@ export function ImportExport({ onImportComplete }: { onImportComplete: () => voi
               console.warn("Failed to parse frequency for row:", row.id)
             }
 
+            // Parse sharable field
+            const sharable = row.sharable === "true"
+
             return {
               id: row.id,
               title: row.title,
@@ -136,10 +148,11 @@ export function ImportExport({ onImportComplete }: { onImportComplete: () => voi
               endDate: row.endDate,
               color: row.color,
               progress: row.progress ? row.progress.split("|").filter(Boolean) : [],
-              order: row.order !== undefined ? Number(row.order) : index, // Use provided order or index
-              notes: notes, // Add parsed notes
-              tabId: row.tabId || "", // Use tabId if available
-              frequency: frequency, // Add parsed frequency
+              order: row.order !== undefined ? Number(row.order) : index,
+              notes: notes,
+              tabId: row.tabId || "",
+              frequency: frequency,
+              sharable: sharable,
             }
           })
 

@@ -19,8 +19,6 @@ import {
   ChevronsDown,
   Share2,
   Globe,
-  Download,
-  Upload,
 } from "lucide-react"
 import {
   type GoalRecord,
@@ -49,6 +47,7 @@ import { TabNavigation } from "./tab-navigation"
 import { GoalReorderButtons } from "./goal-reorder-buttons"
 import { cn } from "@/lib/utils"
 import { db } from "@/lib/db"
+import { ImportExport } from "./import-export"
 
 // Update the Goal interface to include sharable
 export interface Goal {
@@ -1073,14 +1072,7 @@ export function GoalTracker() {
                 </Button>
                 <Separator orientation="vertical" className="h-8 hidden sm:block" />
                 <div className="snap-start flex gap-2">
-                  <Button variant="outline" size="sm" className="whitespace-nowrap">
-                    <Download className="h-4 w-4 sm:mr-2" />
-                    <span className="hidden sm:inline">Export</span>
-                  </Button>
-                  <Button variant="outline" size="sm" className="whitespace-nowrap">
-                    <Upload className="h-4 w-4 sm:mr-2" />
-                    <span className="hidden sm:inline">Import</span>
-                  </Button>
+                  <ImportExport onImportComplete={loadData} />
                 </div>
                 <Button
                   variant="outline"
