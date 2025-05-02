@@ -184,18 +184,47 @@ export class SupabaseDB {
     }
   }
 
+  // Delete all goals and tabs for the current user
+  async deleteAllUserData(): Promise<void> {
+    if (!this.userId) throw new Error("User ID is required")
+
+    try {
+      // Delete all goals first (due to potential foreign key constraints)
+      const { error: goalsError } = await this.supabase.from("goals").delete().eq("user_id", this.userId)
+
+      if (goalsError) {
+        console.error("Error deleting all goals:", goalsError)
+        throw goalsError
+      }
+
+      // Then delete all tabs
+      const { error: tabsError } = await this.supabase.from("tabs").delete().eq("user_id", this.userId)
+
+      if (tabsError) {
+        console.error("Error deleting all tabs:", tabsError)
+        throw tabsError
+      }
+    } catch (error) {
+      console.error("Error deleting all user data:", error)
+      throw error
+    }
+  }
+
   // Sync local data to Supabase
   async syncLocalToSupabase(goals: Goal[], tabs: TabRecord[]): Promise<void> {
     if (!this.userId) throw new Error("User ID is required")
 
     // Start a transaction
     const transaction = async () => {
-      // Upsert all tabs
+      // First delete all existing data
+      await this.deleteAllUserData()
+
+      // Then upsert all tabs
       for (const tab of tabs) {
         await this.upsertTab(tab)
       }
 
-      // Upsert all goals
+      // Then upsert all goals
       for (const goal of goals) {
         await this.upsertGoal(goal)
       }

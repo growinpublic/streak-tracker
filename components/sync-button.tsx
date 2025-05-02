@@ -292,7 +292,7 @@ export function SyncButton({ isMenuItem = false }: { isMenuItem?: boolean }) {
                   <div className="font-medium">Upload to Cloud</div>
                 </div>
                 <div className="text-xs text-muted-foreground w-full whitespace-normal break-words">
-                  Send your browser data to the cloud storage
+                  Replace cloud data with your browser data (deletes existing cloud data)
                 </div>
               </Button>
 
