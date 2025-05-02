@@ -78,6 +78,31 @@ export function getWeeksInRange(
 }
 
 /**
+ * Calculate the total required completions for a weekly goal
+ * @param startDate Goal start date
+ * @param endDate Goal end date
+ * @param requiredPerWeek Number of completions required per week
+ * @returns Total number of required completions
+ */
+export function calculateTotalRequiredCompletions(startDate: Date, endDate: Date, requiredPerWeek: number): number {
+  // Get all weeks in the goal range
+  const weeksInRange = getWeeksInRange(startDate, endDate)
+
+  // Calculate total required completions
+  let totalRequired = 0
+
+  weeksInRange.forEach((week) => {
+    // For partial weeks, prorate the requirement
+    const fullWeekDays = 7
+    const adjustedRequirement = Math.ceil((requiredPerWeek * week.daysInGoal) / fullWeekDays)
+
+    totalRequired += adjustedRequirement
+  })
+
+  return totalRequired
+}
+
+/**
  * Checks if a weekly frequency goal is completed
  * @param progress Array of completed date strings
  * @param startDate Goal start date
@@ -135,7 +160,8 @@ export function calculateWeeklyGoalCompletion(
   const weeksInRange = getWeeksInRange(startDate, endDate)
 
   // Calculate total required completions and actual completions
-  let totalRequired = 0
+  // Use the shared calculation function for total required
+  const totalRequired = calculateTotalRequiredCompletions(startDate, endDate, requiredPerWeek)
   let totalCompleted = 0
 
   weeksInRange.forEach((week) => {
@@ -146,7 +172,6 @@ export function calculateWeeklyGoalCompletion(
     const fullWeekDays = 7
     const adjustedRequirement = Math.ceil((requiredPerWeek * week.daysInGoal) / fullWeekDays)
 
-    totalRequired += adjustedRequirement
     totalCompleted += Math.min(weekProgress.length, adjustedRequirement)
   })
 

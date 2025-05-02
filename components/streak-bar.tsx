@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Info, ChevronLeft, ChevronRight, Bug, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { calculateWeeklyGoalCompletion } from "@/lib/date-utils"
+import { calculateWeeklyGoalCompletion, calculateTotalRequiredCompletions } from "@/lib/date-utils"
 
 interface StreakBarProps {
   startDate: Date
@@ -462,7 +462,7 @@ export function StreakBar({
       } else if (period === "month") {
         // Monthly frequency - use exact number of months
         const exactMonths = totalDays / 30
-        const requiredCompletions = Math.round(count * exactMonths)
+        const requiredCompletions = calculateRequiredCompletions()
         return Math.min(100, Math.round((validProgressDates.length / requiredCompletions) * 100))
       }
     }
@@ -522,25 +522,10 @@ export function StreakBar({
     if (period === "day") {
       return count * totalDays
     } else if (period === "week") {
-      // Use our new weekly calculation
+      // Use the shared calculation function from date-utils.ts
       const start = new Date(startDate)
       const end = new Date(endDate)
-
-      // Get all weeks in the goal range
-      const weeksInRange = getWeeksInRange(start, end)
-
-      // Calculate total required completions
-      let totalRequired = 0
-
-      weeksInRange.forEach((week) => {
-        // For partial weeks, prorate the requirement
-        const fullWeekDays = 7
-        const adjustedRequirement = Math.ceil((count * week.daysInGoal) / fullWeekDays)
-
-        totalRequired += adjustedRequirement
-      })
-
-      return totalRequired
+      return calculateTotalRequiredCompletions(start, end, count)
     } else if (period === "month") {
       // More accurate calculation for months
       const exactMonths = totalDays / 30
@@ -576,7 +561,7 @@ export function StreakBar({
       periodText = `${count} per week for ${weeksInRange.length} week${weeksInRange.length !== 1 ? "s" : ""}`
     } else if (period === "month") {
       const exactMonths = totalDays / 30
-      requiredCompletions = Math.round(count * exactMonths)
+      requiredCompletions = calculateRequiredCompletions()
       periodText = `${Math.round(exactMonths * 10) / 10} month${exactMonths !== 1 ? "s" : ""}`
     }
 
