@@ -48,6 +48,7 @@ import { GoalReorderButtons } from "./goal-reorder-buttons"
 import { cn } from "@/lib/utils"
 import { db } from "@/lib/db"
 import { ImportExport } from "./import-export"
+import { isWeeklyGoalCompleted } from "@/lib/date-utils"
 
 // Update the Goal interface to include sharable
 export interface Goal {
@@ -368,20 +369,18 @@ export function GoalTracker() {
     // If using frequency, check against required completions
     if (goal.frequency) {
       const { count, period } = goal.frequency
-      let requiredCompletions = 0
 
-      if (period === "day") {
-        requiredCompletions = count * totalDays
-      } else if (period === "week") {
-        // More accurate calculation for weeks
-        const exactWeeks = totalDays / 7
-        requiredCompletions = Math.round(count * exactWeeks)
+      if (period === "week") {
+        // Use our new weekly calculation
+        return isWeeklyGoalCompleted(goal.progress, start, end, count)
+      } else if (period === "day") {
+        const requiredCompletions = count * totalDays
+        return validProgressDates.length >= requiredCompletions
       } else if (period === "month") {
         const exactMonths = totalDays / 30
-        requiredCompletions = Math.round(count * exactMonths)
+        const requiredCompletions = Math.round(count * exactMonths)
+        return validProgressDates.length >= requiredCompletions
       }
-
-      return validProgressDates.length >= requiredCompletions
     }
 
     // Standard completion check for daily goals
@@ -414,8 +413,7 @@ export function GoalTracker() {
     if (period === "day") {
       periodText = `${count} per day`
     } else if (period === "week") {
-      const exactWeeks = totalDays / 7
-      periodText = `${count} per week for ${Math.round(exactWeeks * 10) / 10} weeks`
+      periodText = `${count} per week`
     } else if (period === "month") {
       const exactMonths = totalDays / 30
       periodText = `${count} per month for ${Math.round(exactMonths * 10) / 10} months`
@@ -761,7 +759,9 @@ export function GoalTracker() {
     const formattedDate = format(today, "MMMM d, yyyy")
 
     // Start with header
-    let text = `📊 Streak - ${formattedDate}\n\n`
+    let text = `📊 Streak - ${formattedDate}
+
+`
 
     // Use provided goals or filter all goals by sharable flag
     const sharableGoals = goalsToShare || goals.filter((goal) => goal.sharable !== false)
@@ -780,7 +780,8 @@ export function GoalTracker() {
       // Add frequency info if available
       const frequencyInfo = goal.frequency ? ` (${goal.frequency.count}/${goal.frequency.period})` : ""
 
-      text += `☑️ Day ${completedDays}${frequencyInfo}: ${goal.title}\n`
+      text += `☑️ Day ${completedDays}${frequencyInfo}: ${goal.title}
+`
     })
 
     return text

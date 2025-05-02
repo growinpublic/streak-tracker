@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Info, ChevronLeft, ChevronRight, Bug, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { calculateWeeklyGoalCompletion } from "@/lib/date-utils"
 
 interface StreakBarProps {
   startDate: Date
@@ -39,6 +40,30 @@ const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
 // Set to true to show debug buttons
 const SHOW_DEBUG_BUTTONS = false
+
+// Helper function to get all weeks in a date range
+const getWeeksInRange = (start: Date, end: Date) => {
+  const weeks = []
+  let current = new Date(start)
+
+  while (current <= end) {
+    const startOfWeek = subDays(current, current.getDay())
+    const endOfWeek = addDays(startOfWeek, 6)
+
+    const weekEnd = endOfWeek > end ? end : endOfWeek
+    const daysInGoal = differenceInDays(weekEnd, startOfWeek) + 1
+
+    weeks.push({
+      start: startOfWeek,
+      end: weekEnd,
+      daysInGoal: daysInGoal,
+    })
+
+    current = addDays(endOfWeek, 1)
+  }
+
+  return weeks
+}
 
 export function StreakBar({
   startDate,
@@ -426,23 +451,20 @@ export function StreakBar({
     // If using frequency, calculate based on required completions
     if (frequency) {
       const { count, period } = frequency
-      let requiredCompletions = 0
 
-      if (period === "day") {
+      if (period === "week") {
+        // Use our new weekly calculation
+        return calculateWeeklyGoalCompletion(progress, start, end, count)
+      } else if (period === "day") {
         // Daily frequency - count * total days
-        requiredCompletions = count * totalDays
-      } else if (period === "week") {
-        // Weekly frequency - use exact number of weeks
-        const exactWeeks = totalDays / 7
-        requiredCompletions = Math.round(count * exactWeeks)
+        const requiredCompletions = count * totalDays
+        return Math.min(100, Math.round((validProgressDates.length / requiredCompletions) * 100))
       } else if (period === "month") {
         // Monthly frequency - use exact number of months
         const exactMonths = totalDays / 30
-        requiredCompletions = Math.round(count * exactMonths)
+        const requiredCompletions = Math.round(count * exactMonths)
+        return Math.min(100, Math.round((validProgressDates.length / requiredCompletions) * 100))
       }
-
-      // Calculate percentage based on required completions
-      return Math.min(100, Math.round((validProgressDates.length / requiredCompletions) * 100))
     }
 
     // Standard calculation for daily goals
@@ -500,9 +522,25 @@ export function StreakBar({
     if (period === "day") {
       return count * totalDays
     } else if (period === "week") {
-      // More accurate calculation for weeks - use exact number of weeks
-      const exactWeeks = totalDays / 7
-      return Math.round(count * exactWeeks)
+      // Use our new weekly calculation
+      const start = new Date(startDate)
+      const end = new Date(endDate)
+
+      // Get all weeks in the goal range
+      const weeksInRange = getWeeksInRange(start, end)
+
+      // Calculate total required completions
+      let totalRequired = 0
+
+      weeksInRange.forEach((week) => {
+        // For partial weeks, prorate the requirement
+        const fullWeekDays = 7
+        const adjustedRequirement = Math.ceil((count * week.daysInGoal) / fullWeekDays)
+
+        totalRequired += adjustedRequirement
+      })
+
+      return totalRequired
     } else if (period === "month") {
       // More accurate calculation for months
       const exactMonths = totalDays / 30
@@ -527,9 +565,15 @@ export function StreakBar({
       requiredCompletions = count * totalDays
       periodText = "day"
     } else if (period === "week") {
-      const exactWeeks = totalDays / 7
-      requiredCompletions = Math.round(count * exactWeeks)
-      periodText = `${Math.round(exactWeeks * 10) / 10} week${exactWeeks !== 1 ? "s" : ""}`
+      // Use our new weekly calculation
+      requiredCompletions = calculateRequiredCompletions()
+
+      // Get all weeks in the goal range
+      const start = new Date(startDate)
+      const end = new Date(endDate)
+      const weeksInRange = getWeeksInRange(start, end)
+
+      periodText = `${count} per week for ${weeksInRange.length} week${weeksInRange.length !== 1 ? "s" : ""}`
     } else if (period === "month") {
       const exactMonths = totalDays / 30
       requiredCompletions = Math.round(count * exactMonths)
