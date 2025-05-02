@@ -20,6 +20,26 @@ import {
 } from "@/components/ui/dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, CheckCircle } from "lucide-react"
+import type { SupabaseClient } from "@supabase/supabase-js"
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
+
+// Helper function to check if user is fully authenticated
+const isFullyAuthenticated = async (supabase: SupabaseClient) => {
+  try {
+    const { data, error } = await supabase.auth.getSession()
+    if (error) {
+      console.error("Error checking authentication:", error)
+      return false
+    }
+    return data?.session?.user?.id ? true : false
+  } catch (e) {
+    console.error("Exception checking authentication:", e)
+    return false
+  }
+}
+
+// Helper function to wait for a specified time
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 type SyncDirection = "localToRemote" | "remoteToLocal" | "merge"
 
@@ -59,7 +79,22 @@ export function SyncButton({ isMenuItem = false }: { isMenuItem?: boolean }) {
   }
 
   // Function to initiate sync with conflict checking
-  const initiateSync = (direction: SyncDirection) => {
+  const initiateSync = async (direction: SyncDirection) => {
+    // For new users, add a slight delay before first sync
+    const isNewUser = localStorage.getItem("streaktracker_first_sync") !== "done"
+
+    if (isNewUser && direction === "localToRemote") {
+      console.log("First sync detected, adding delay to ensure authentication is established...")
+      setIsSyncing(true)
+      setSyncDirection(direction)
+
+      // Wait 2 seconds to allow auth to fully establish
+      await wait(2000)
+
+      // Mark that we've done the first sync
+      localStorage.setItem("streaktracker_first_sync", "done")
+    }
+
     if (direction === "localToRemote") {
       // For upload, we don't need conflict resolution
       handleSync(direction)
@@ -81,7 +116,7 @@ export function SyncButton({ isMenuItem = false }: { isMenuItem?: boolean }) {
     }
   }
 
-  const handleSync = async (direction: SyncDirection, conflictResolution?: "overwrite" | "merge") => {
+  const handleSync = async (direction: SyncDirection, conflictResolution?: "overwrite" | "merge", maxRetries = 3) => {
     if (!user) return
 
     setIsSyncing(true)
@@ -89,130 +124,175 @@ export function SyncButton({ isMenuItem = false }: { isMenuItem?: boolean }) {
     setSyncStatus(null)
 
     try {
+      // Verify authentication before proceeding
+      const supabase = createClientComponentClient()
+      const authenticated = await isFullyAuthenticated(supabase)
+
+      if (!authenticated) {
+        // If not authenticated, wait a bit and check again
+        console.log("Waiting for authentication to be fully established...")
+        await wait(2000)
+        const rechecked = await isFullyAuthenticated(supabase)
+        if (!rechecked) {
+          throw new Error("Authentication not fully established. Please try again in a moment.")
+        }
+      }
+
       const supabaseDB = getSupabaseDB(user.id)
 
-      if (direction === "localToRemote") {
-        // Sync local data to Supabase (unchanged)
-        const localGoals = await getAllGoals()
-        const localTabs = await getAllTabs()
+      // Add retry logic for all sync operations
+      let lastError = null
+      let success = false
 
-        // Convert GoalRecord to Goal
-        const goals = localGoals.map(recordToGoal)
-
-        await supabaseDB.syncLocalToSupabase(goals, localTabs)
-
-        setSyncStatus({
-          success: true,
-          message: `Successfully synced ${goals.length} goals and ${localTabs.length} tabs to the cloud`,
-        })
-      } else if (direction === "remoteToLocal" || direction === "merge") {
-        // Get remote data
-        const { goals: remoteGoals, tabs: remoteTabs } = await supabaseDB.syncSupabaseToLocal()
-
-        // For overwrite mode, clear the database first
-        if (direction === "remoteToLocal" && conflictResolution !== "merge") {
-          console.log("Overwrite mode: Clearing local database")
-          try {
-            await db.goals.clear()
-            await db.tabs.clear()
-            console.log("Database cleared successfully")
-          } catch (error) {
-            console.error("Error clearing database:", error)
-            throw error
-          }
-        }
-
-        // Process the data based on the selected mode
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-          // Always process tabs first
-          console.log(`Processing ${remoteTabs.length} tabs...`)
-          for (const tab of remoteTabs) {
-            try {
-              if (direction === "merge") {
-                // In merge mode, only add tabs that don't exist
-                const existingTab = await db.tabs.get(tab.id)
-                if (!existingTab) {
-                  await db.tabs.put(tab)
-                  console.log(`Added new tab: ${tab.id}`)
-                } else {
-                  console.log(`Tab ${tab.id} already exists, skipping`)
-                }
-              } else {
-                // In overwrite mode, add all tabs
-                await db.tabs.put(tab)
+          if (direction === "localToRemote") {
+            // Sync local data to Supabase
+            const localGoals = await getAllGoals()
+            const localTabs = await getAllTabs()
+
+            // Convert GoalRecord to Goal
+            const goals = localGoals.map(recordToGoal)
+
+            await supabaseDB.syncLocalToSupabase(goals, localTabs)
+
+            success = true
+            setSyncStatus({
+              success: true,
+              message: `Successfully synced ${goals.length} goals and ${localTabs.length} tabs to the cloud`,
+            })
+            break
+          } else if (direction === "remoteToLocal" || direction === "merge") {
+            // Get remote data
+            const { goals: remoteGoals, tabs: remoteTabs } = await supabaseDB.syncSupabaseToLocal()
+
+            // For overwrite mode, clear the database first
+            if (direction === "remoteToLocal" && conflictResolution !== "merge") {
+              console.log("Overwrite mode: Clearing local database")
+              try {
+                await db.goals.clear()
+                await db.tabs.clear()
+                console.log("Database cleared successfully")
+              } catch (error) {
+                console.error("Error clearing database:", error)
+                throw error
               }
+            }
+
+            // Process the data based on the selected mode
+            try {
+              // Always process tabs first
+              console.log(`Processing ${remoteTabs.length} tabs...`)
+              for (const tab of remoteTabs) {
+                try {
+                  if (direction === "merge") {
+                    // In merge mode, only add tabs that don't exist
+                    const existingTab = await db.tabs.get(tab.id)
+                    if (!existingTab) {
+                      await db.tabs.put(tab)
+                      console.log(`Added new tab: ${tab.id}`)
+                    } else {
+                      console.log(`Tab ${tab.id} already exists, skipping`)
+                    }
+                  } else {
+                    // In overwrite mode, add all tabs
+                    await db.tabs.put(tab)
+                  }
+                } catch (error) {
+                  console.error(`Error processing tab ${tab.id}:`, error)
+                  // Continue with other tabs
+                }
+              }
+
+              // Then process goals
+              console.log(`Processing ${remoteGoals.length} goals...`)
+              let successCount = 0
+              let skipCount = 0
+
+              for (const goal of remoteGoals) {
+                try {
+                  // Convert Goal to GoalRecord
+                  const goalRecord = {
+                    id: goal.id,
+                    title: goal.title,
+                    startDate: goal.startDate.toISOString(),
+                    endDate: goal.endDate.toISOString(),
+                    progress: goal.progress,
+                    color: goal.color,
+                    order: goal.order,
+                    notes: goal.notes,
+                    tabId: goal.tabId,
+                    frequency: goal.frequency,
+                  }
+
+                  if (direction === "merge") {
+                    // In merge mode, only add goals that don't exist
+                    const existingGoal = await db.goals.get(goal.id)
+                    if (!existingGoal) {
+                      await db.goals.put(goalRecord)
+                      successCount++
+                      console.log(`Added new goal: ${goal.id}`)
+                    } else {
+                      skipCount++
+                      console.log(`Goal ${goal.id} already exists, skipping`)
+                    }
+                  } else {
+                    // In overwrite mode, add all goals
+                    await db.goals.put(goalRecord)
+                    successCount++
+                  }
+                } catch (error) {
+                  console.error(`Error processing goal ${goal.id}:`, error)
+                  // Continue with other goals
+                }
+              }
+
+              console.log(`Processed ${successCount} goals successfully, skipped ${skipCount} existing goals`)
+
+              // If it's a merge, sync the merged data back to Supabase
+              if (direction === "merge") {
+                const updatedGoals = await getAllGoals()
+                const updatedTabs = await getAllTabs()
+                await supabaseDB.syncLocalToSupabase(updatedGoals.map(recordToGoal), updatedTabs)
+              }
+
+              setSyncStatus({
+                success: true,
+                message:
+                  direction === "merge"
+                    ? `Successfully merged data. Added ${successCount} new goals and skipped ${skipCount} existing goals.`
+                    : `Successfully downloaded ${remoteGoals.length} goals and ${remoteTabs.length} tabs from the cloud`,
+              })
+
+              // Set a flag to refresh the page after the user closes the dialog
+              setNeedsRefresh(true)
+              success = true
+              break
             } catch (error) {
-              console.error(`Error processing tab ${tab.id}:`, error)
-              // Continue with other tabs
+              console.error("Error during data processing:", error)
+              throw error
             }
           }
-
-          // Then process goals
-          console.log(`Processing ${remoteGoals.length} goals...`)
-          let successCount = 0
-          let skipCount = 0
-
-          for (const goal of remoteGoals) {
-            try {
-              // Convert Goal to GoalRecord
-              const goalRecord = {
-                id: goal.id,
-                title: goal.title,
-                startDate: goal.startDate.toISOString(),
-                endDate: goal.endDate.toISOString(),
-                progress: goal.progress,
-                color: goal.color,
-                order: goal.order,
-                notes: goal.notes,
-                tabId: goal.tabId,
-                frequency: goal.frequency,
-              }
-
-              if (direction === "merge") {
-                // In merge mode, only add goals that don't exist
-                const existingGoal = await db.goals.get(goal.id)
-                if (!existingGoal) {
-                  await db.goals.put(goalRecord)
-                  successCount++
-                  console.log(`Added new goal: ${goal.id}`)
-                } else {
-                  skipCount++
-                  console.log(`Goal ${goal.id} already exists, skipping`)
-                }
-              } else {
-                // In overwrite mode, add all goals
-                await db.goals.put(goalRecord)
-                successCount++
-              }
-            } catch (error) {
-              console.error(`Error processing goal ${goal.id}:`, error)
-              // Continue with other goals
-            }
-          }
-
-          console.log(`Processed ${successCount} goals successfully, skipped ${skipCount} existing goals`)
-
-          // If it's a merge, sync the merged data back to Supabase
-          if (direction === "merge") {
-            const updatedGoals = await getAllGoals()
-            const updatedTabs = await getAllTabs()
-            await supabaseDB.syncLocalToSupabase(updatedGoals.map(recordToGoal), updatedTabs)
-          }
-
-          setSyncStatus({
-            success: true,
-            message:
-              direction === "merge"
-                ? `Successfully merged data. Added ${successCount} new goals and skipped ${skipCount} existing goals.`
-                : `Successfully downloaded ${remoteGoals.length} goals and ${remoteTabs.length} tabs from the cloud`,
-          })
-
-          // Set a flag to refresh the page after the user closes the dialog
-          setNeedsRefresh(true)
         } catch (error) {
-          console.error("Error during data processing:", error)
-          throw error
+          console.error(`Sync error (attempt ${attempt}/${maxRetries}):`, error)
+          lastError = error
+
+          // If it's an RLS policy error, wait and retry
+          if (error.code === "42501" && attempt < maxRetries) {
+            console.log(`Authentication may not be fully established. Waiting ${attempt * 1000}ms before retry...`)
+            await wait(attempt * 1000)
+          } else {
+            // For other errors or if we've reached max retries, break the loop
+            break
+          }
         }
+      }
+
+      if (!success && lastError) {
+        setSyncStatus({
+          success: false,
+          message: lastError instanceof Error ? lastError.message : "An unknown error occurred",
+        })
       }
     } catch (error) {
       console.error("Sync error:", error)
